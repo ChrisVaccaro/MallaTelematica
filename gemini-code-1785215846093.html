@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Malla Curricular Interactiva - Telemática</title>
+  <style>
+    :root {
+      --bg-color: #f8fafc;
+      --card-bg: #ffffff;
+      --border-color: #cbd5e1;
+      --primary-color: #0f172a;
+      --accent-color: #2563eb;
+      --basic-math-color: #e0f2fe; /* Celeste ciencias básicas */
+      --basic-math-border: #0284c7;
+      --coreq-color: #8b5cf6;
+      --highlight-req: #ef4444;
+      --highlight-next: #10b981;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: var(--bg-color);
+      color: #334155;
+      user-select: none;
+    }
+
+    h1 { text-align: center; margin-bottom: 4px; color: var(--primary-color); }
+    .subtitle { text-align: center; font-size: 0.9em; color: #64748b; margin-bottom: 15px; }
+
+    /* Barra de Leyenda e Indicadores */
+    .legend-bar {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 15px;
+      margin-bottom: 15px;
+      font-size: 0.85em;
+      font-weight: 600;
+    }
+
+    .legend-item { display: flex; align-items: center; gap: 8px; }
+    .legend-line { width: 30px; height: 3px; display: inline-block; border-radius: 2px; }
+    .legend-prereq { background-color: #64748b; }
+    .legend-coreq { background-color: var(--coreq-color); border-bottom: 2px dashed var(--coreq-color); }
+    .legend-box-basic { width: 16px; height: 16px; background-color: var(--basic-math-color); border: 2px solid var(--basic-math-border); border-radius: 4px; }
+
+    /* Badges / Contadores de Créditos */
+    .basic-credits-badge {
+      background-color: var(--basic-math-color);
+      border: 2px solid var(--basic-math-border);
+      color: #0369a1;
+      padding: 5px 12px;
+      border-radius: 16px;
+      font-weight: 700;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+
+    .total-credits-badge {
+      background-color: #0f172a;
+      border: 2px solid #1e293b;
+      color: #ffffff;
+      padding: 5px 12px;
+      border-radius: 16px;
+      font-weight: 700;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .toolbar {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 20px;
+      background: white;
+      padding: 12px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    button {
+      padding: 8px 16px;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background-color: white;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    button:hover { background-color: #f1f5f9; }
+    button.active { background-color: var(--accent-color); color: white; border-color: var(--accent-color); }
+
+    .btn-add { background-color: #10b981; color: white; border-color: #10b981; }
+    .btn-add:hover { background-color: #059669; }
+
+    /* CONTENEDOR PRINCIPAL */
+    .board-container {
+      position: relative;
+      width: 100%;
+      overflow-x: auto;
+      padding-top: 25px;
+    }
+
+    /* CAPA INTERMEDIA: LÍNEAS SVG EN Z-INDEX: 5 */
+    svg#connections-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 5 !important;
+    }
+
+    .board {
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+      min-width: 1350px;
+      position: relative;
+    }
+
+    /* CAPA BASE: FILAS Y CELDAS */
+    .level-row {
+      display: flex;
+      background: #ffffff;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      min-height: 125px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      position: relative;
+    }
+
+    .level-header {
+      width: 160px;
+      min-width: 160px;
+      background-color: #f1f5f9;
+      border-right: 1px solid var(--border-color);
+      border-radius: 8px 0 0 8px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 10px;
+      font-weight: bold;
+      color: var(--primary-color);
+      font-size: 0.85em;
+    }
+
+    .level-credits {
+      font-size: 0.8em;
+      color: #0369a1;
+      background: #e0f2fe;
+      padding: 3px 8px;
+      border-radius: 12px;
+      margin-top: 6px;
+    }
+
+    .level-content-grid {
+      flex: 1;
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 14px;
+      padding: 16px;
+      background-color: #fafafa;
+      align-items: center;
+    }
+
+    .grid-cell {
+      border: 1px dashed #cbd5e1;
+      border-radius: 6px;
+      min-height: 90px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background-color: rgba(255, 255, 255, 0.5);
+      transition: background-color 0.2s;
+    }
+
+    .grid-cell.drag-over { background-color: #e0f2fe; border-color: var(--accent-color); }
+
+    /* CAPA SUPERIOR: TARJETAS EN Z-INDEX: 10 */
+    .subject-card {
+      width: 100%;
+      height: 90px;
+      background-color: #ffffff !important;
+      border: 2px solid #64748b;
+      border-radius: 8px;
+      padding: 6px;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      cursor: grab;
+      position: relative !important;
+      z-index: 10 !important;
+      transition: transform 0.15s, border-color 0.2s, box-shadow 0.2s;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    .subject-card:hover {
+      box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+      transform: translateY(-2px);
+      z-index: 15 !important;
+    }
+
+    .subject-card.basic-math {
+      background-color: var(--basic-math-color) !important;
+      border-color: var(--basic-math-border) !important;
+    }
+
+    .subject-header { display: flex; justify-content: space-between; font-size: 0.7em; font-weight: bold; color: #475569; }
+    .subject-title { font-size: 0.7em; font-weight: 700; text-align: center; text-transform: uppercase; line-height: 1.1; margin: 2px 0; color: #0f172a; }
+    .subject-footer { display: flex; justify-content: space-between; font-size: 0.65em; color: #64748b; }
+
+    .edit-btn {
+      position: absolute;
+      top: -6px;
+      right: -6px;
+      background: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 18px;
+      height: 18px;
+      font-size: 10px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+      z-index: 20;
+    }
+
+    .subject-card:hover .edit-btn { display: flex; }
+
+    /* Resaltados */
+    .subject-card.highlight-req { border-color: var(--highlight-req) !important; background-color: #fef2f2 !important; color: #0f172a !important; }
+    .subject-card.highlight-req * { color: #0f172a !important; }
+
+    .subject-card.highlight-next { border-color: var(--highlight-next) !important; background-color: #ecfdf5 !important; color: #0f172a !important; }
+    .subject-card.highlight-next * { color: #0f172a !important; }
+
+    .subject-card.connecting-source { border-color: #f59e0b !important; box-shadow: 0 0 12px #f59e0b; }
+
+    /* ESTILOS DE LÍNEAS SVG */
+    path.connection {
+      fill: none;
+      stroke: #64748b;
+      stroke-width: 2.5;
+      opacity: 0.7;
+      transition: stroke 0.2s, stroke-width 0.2s, opacity 0.2s;
+    }
+
+    path.connection.corequisite {
+      stroke: var(--coreq-color);
+      stroke-width: 2.5;
+      stroke-dasharray: 5, 4;
+      opacity: 0.85;
+    }
+
+    path.connection.highlight-req {
+      stroke: var(--highlight-req) !important;
+      stroke-width: 4 !important;
+      stroke-dasharray: none !important;
+      opacity: 1 !important;
+    }
+
+    path.connection.highlight-next {
+      stroke: var(--highlight-next) !important;
+      stroke-width: 4 !important;
+      stroke-dasharray: none !important;
+      opacity: 1 !important;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(15, 23, 42, 0.5); display: none;
+      justify-content: center; align-items: center; z-index: 200;
+    }
+    .modal { background: white; border-radius: 10px; padding: 24px; width: 380px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+    .modal h2 { margin-top: 0; font-size: 1.2em; color: var(--primary-color); }
+    .form-group { margin-bottom: 14px; }
+    .form-group label { display: block; font-size: 0.85em; font-weight: 600; margin-bottom: 4px; }
+    .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 6px; box-sizing: border-box; }
+    .modal-actions { display: flex; justify-content: space-between; margin-top: 20px; }
+  </style>
+</head>
+<body>
+
+  <h1>Malla Curricular Interactiva - Telemática</h1>
+  <div class="subtitle">Gestión telemática de créditos, correquisitos y ciencias básicas</div>
+
+  <div class="legend-bar">
+    <div class="legend-item"><span class="legend-line legend-prereq"></span><span>Prerrequisito</span></div>
+    <div class="legend-item"><span class="legend-line legend-coreq"></span><span>Correquisito (Mismo nivel)</span></div>
+    <div class="legend-item"><span class="legend-box-basic"></span><span>Ciencias Básicas</span></div>
+    <div class="basic-credits-badge" id="basic-credits-summary">
+      📐 Créditos Ciencias Básicas: 0
+    </div>
+    <div class="total-credits-badge" id="total-credits-summary">
+      🎓 Total Créditos Malla: 0
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <button id="btn-mode-drag" class="active" onclick="setMode('drag')">🖐️ Modo Mover / Organizar</button>
+    <button id="btn-mode-connect" onclick="setMode('connect')">🔗 Modo Trazar Líneas</button>
+    <button class="btn-add" onclick="openModalForCreate()">➕ Nueva Materia</button>
+    <button onclick="exportJSON()">💾 Guardar / Exportar JSON</button>
+    <button onclick="triggerImportJSON()">📂 Cargar JSON</button>
+    <input type="file" id="import-file-input" accept=".json" style="display: none;" onchange="importJSON(event)">
+    <button onclick="resetLayout()" style="color: #dc2626;">🔄 Reiniciar Malla</button>
+  </div>
+
+  <div class="board-container">
+    <svg id="connections-layer"></svg>
+    <div class="board" id="board"></div>
+  </div>
+
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal">
+      <h2 id="modal-title">Agregar Nueva Materia</h2>
+      <input type="hidden" id="edit-id">
+      <div class="form-group"><label>Nombre de la Materia:</label><input type="text" id="edit-name" placeholder="Ej: CÁLCULO VECTORIAL"></div>
+      <div class="form-group"><label>Código:</label><input type="text" id="edit-code" placeholder="Ej: MATG1046"></div>
+      <div class="form-group"><label>Componentes (Horas CD/CP/AA):</label><input type="text" id="edit-components" placeholder="Ej: 3/2/4"></div>
+      <div class="form-group"><label>Horas Totales (Suma):</label><input type="number" id="edit-sum" placeholder="Ej: 9"></div>
+      <div class="form-group" id="level-select-group">
+        <label>Nivel / Semestre:</label>
+        <select id="edit-level">
+          <option value="L100-1">NIVEL 100 - I</option>
+          <option value="L100-2">NIVEL 100 - II</option>
+          <option value="L200-1">NIVEL 200 - I</option>
+          <option value="L200-2">NIVEL 200 - II</option>
+          <option value="L300-1">NIVEL 300 - I</option>
+          <option value="L300-2">NIVEL 300 - II</option>
+          <option value="L400-1">NIVEL 400 - I</option>
+          <option value="L400-2">NIVEL 400 - II</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button onclick="closeModal()">Cancelar</button>
+        <button id="btn-delete" onclick="deleteSubject()" style="color: #dc2626; display: none;">🗑️ Eliminar</button>
+        <button onclick="saveSubjectFromModal()" style="background-color: var(--accent-color); color: white;">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const NUM_COLUMNS = 7;
+
+    // MALLA BASE BASE EN TU ARCHIVO JSON EXPORTADO
+    const initialData = {
+      "levels": [
+        { "id": "L100-1", "name": "NIVEL 100 - I" },
+        { "id": "L100-2", "name": "NIVEL 100 - II" },
+        { "id": "L200-1", "name": "NIVEL 200 - I" },
+        { "id": "L200-2", "name": "NIVEL 200 - II" },
+        { "id": "L300-1", "name": "NIVEL 300 - I" },
+        { "id": "L300-2", "name": "NIVEL 300 - II" },
+        { "id": "L400-1", "name": "NIVEL 400 - I" },
+        { "id": "L400-2", "name": "NIVEL 400 - II" }
+      ],
+      "subjects": [
+        { "id": "MATG1045", "code": "MATG1045", "name": "CÁLCULO DE UNA VARIABLE", "components": "3/2/4", "sum": 9, "level": "L100-1", "col": 0 },
+        { "id": "FISG1005", "code": "FISG1005", "name": "FÍSICA: MECÁNICA", "components": "3/2/4", "sum": 9, "level": "L100-1", "col": 1 },
+        { "id": "COMP1", "code": "ART-DEP", "name": "COMPLEMENTARIAS ARTES, DEPORTES E IDIOMAS", "components": "1/1/1", "sum": 3, "level": "L100-1", "col": 2 },
+        { "id": "CCPG1043", "code": "CCPG1043", "name": "FUNDAMENTOS DE PROGRAMACIÓN", "components": "3/1/5", "sum": 9, "level": "L100-1", "col": 3 },
+        { "id": "INDG1033", "code": "INDG1033", "name": "ANÁLISIS Y RESOLUCIÓN DE PROBLEMAS", "components": "3/0/6", "sum": 9, "level": "L100-1", "col": 4 },
+        { "id": "IDIG1006", "code": "IDIG1006", "name": "INGLÉS I", "components": "2/2/2", "sum": 6, "level": "L100-1", "col": 5 },
+        { "id": "MATG1046", "code": "MATG1046", "name": "CÁLCULO VECTORIAL", "components": "3/2/4", "sum": 9, "level": "L100-2", "col": 0 },
+        { "id": "FISG1006", "code": "FISG1006", "name": "FÍSICA: ELECTRICIDAD Y MAGNETISMO", "components": "3/2/4", "sum": 9, "level": "L100-2", "col": 1 },
+        { "id": "IDIG2012", "code": "IDIG2012", "name": "COMUNICACIÓN &6", "components": "2/2/2", "sum": 6, "level": "L100-2", "col": 2 },
+        { "id": "CCPG1052", "code": "CCPG1052", "name": "PROGRAMACIÓN ORIENTADA A OBJETOS", "components": "3/1/5", "sum": 9, "level": "L100-2", "col": 3 },
+        { "id": "TLMG1036", "code": "TLMG1036", "name": "TELE MÁTICA Y TRANSFORMACIÓN DIGITAL", "components": "2/1/3", "sum": 6, "level": "L100-2", "col": 4 },
+        { "id": "IDIG1007", "code": "IDIG1007", "name": "INGLÉS II", "components": "2/2/2", "sum": 6, "level": "L100-2", "col": 5 },
+        { "id": "MATG1049", "code": "MATG1049", "name": "ÁLGEBRA LINEAL", "components": "3/1/5", "sum": 9, "level": "L200-1", "col": 0 },
+        { "id": "MATG1051", "code": "MATG1051", "name": "MATEMÁTICAS DISCRETAS", "components": "3/1/5", "sum": 9, "level": "L200-1", "col": 1 },
+        { "id": "COMP2", "code": "HUMAN", "name": "COMPLEMENTARIAS DE HUMANÍSTICAS", "components": "1/1/1", "sum": 3, "level": "L200-1", "col": 2 },
+        { "id": "TLMG1032", "code": "TLMG1032", "name": "REDES DE DATOS &6", "components": "3/1/5", "sum": 9, "level": "L200-1", "col": 3 },
+        { "id": "TICG1018", "code": "TICG1018", "name": "SISTEMA DE BASES DE DATOS", "components": "3/1/5", "sum": 9, "level": "L200-1", "col": 4 },
+        { "id": "IDIG1008", "code": "IDIG1008", "name": "INGLÉS III", "components": "2/2/2", "sum": 6, "level": "L200-1", "col": 5 },
+        { "id": "MATG1050", "code": "MATG1050", "name": "ECUACIONES DIFERENCIALES", "components": "3/2/4", "sum": 9, "level": "L200-2", "col": 0 },
+        { "id": "ESTG1034", "code": "ESTG1034", "name": "ESTADÍSTICA", "components": "3/1/5", "sum": 9, "level": "L200-2", "col": 1 },
+        { "id": "EYAG1044", "code": "EYAG1044", "name": "SISTEMAS DIGITALES I", "components": "2/2/2", "sum": 6, "level": "L200-2", "col": 2 },
+        { "id": "ELEG1034", "code": "ELEG1034", "name": "ELECTRICIDAD BÁSICA", "components": "3/2/4", "sum": 9, "level": "L200-2", "col": 3 },
+        { "id": "TLMG1030", "code": "TLMG1030", "name": "INTERNETWORKING", "components": "2/2/2", "sum": 6, "level": "L200-2", "col": 4 },
+        { "id": "IDIG1009", "code": "IDIG1009", "name": "INGLÉS IV", "components": "2/2/2", "sum": 6, "level": "L200-2", "col": 5 },
+        { "id": "ADMG1005", "code": "ADMG1005", "name": "EMPRENDIMIENTO E INNOVACIÓN &20", "components": "3/1/5", "sum": 9, "level": "L300-1", "col": 0 },
+        { "id": "CCPG1051", "code": "CCPG1051", "name": "PROGRAMACIÓN DE SISTEMAS", "components": "3/1/5", "sum": 9, "level": "L300-1", "col": 1 },
+        { "id": "EYAG1046", "code": "EYAG1046", "name": "SISTEMAS EMBEBIDOS", "components": "3/2/4", "sum": 9, "level": "L300-1", "col": 2 },
+        { "id": "EYAG1034", "code": "EYAG1034", "name": "ELECTRÓNICA", "components": "2/1/3", "sum": 6, "level": "L300-1", "col": 3 },
+        { "id": "TLMG1022", "code": "TLMG1022", "name": "ADMINISTRACIÓN DE SISTEMAS Y SERVICIOS EN RED", "components": "2/2/2", "sum": 6, "level": "L300-1", "col": 4 },
+        { "id": "IDIG1010", "code": "IDIG1010", "name": "INGLÉS V", "components": "2/2/2", "sum": 6, "level": "L300-1", "col": 5 },
+        { "id": "ADSG1026", "code": "ADSG1026", "name": "CIENCIAS DE LA SOSTENIBILIDAD &20", "components": "3/0/6", "sum": 9, "level": "L300-2", "col": 0 },
+        { "id": "TLMG1028", "code": "TLMG1028", "name": "EVALUACIÓN Y SIMULACIÓN DE REDES", "components": "2/1/3", "sum": 6, "level": "L300-2", "col": 1 },
+        { "id": "TLMG1033", "code": "TLMG1033", "name": "REDES INALÁMBRICAS Y DE SENSORES", "components": "2/2/2", "sum": 6, "level": "L300-2", "col": 2 },
+        { "id": "TLMG1026", "code": "TLMG1026", "name": "CIBERSEGURIDAD Y GESTIÓN DE REDES", "components": "2/2/2", "sum": 6, "level": "L300-2", "col": 3 },
+        { "id": "TLMG1034", "code": "TLMG1034", "name": "SISTEMAS EN LA NUBE", "components": "3/1/5", "sum": 9, "level": "L300-2", "col": 4 },
+        { "id": "PRAC1", "code": "SER-COM", "name": "PRÁCTICAS DE SERVICIO COMUNITARIO", "components": "2/2/2", "sum": 6, "level": "L300-2", "col": 5 },
+        { "id": "TLMG1035", "code": "TLMG1035", "name": "TELEMETRÍA Y SISTEMAS CIBERFÍSICOS", "components": "3/1/5", "sum": 9, "level": "L400-1", "col": 0 },
+        { "id": "TLMG1027", "code": "TLMG1027", "name": "COMUNICACIÓN DIGITAL DE DATOS", "components": "2/1/3", "sum": 6, "level": "L400-1", "col": 1 },
+        { "id": "CCPG1055", "code": "CCPG1055", "name": "SISTEMAS DISTRIBUIDOS Y COMPUTACIÓN EN LA NUBE", "components": "3/1/5", "sum": 9, "level": "L400-1", "col": 2 },
+        { "id": "TLMG1025", "code": "TLMG1025", "name": "CALIDAD DE SERVICIO Y REDES MULTIMEDIA", "components": "2/1/3", "sum": 6, "level": "L400-1", "col": 3 },
+        { "id": "TLMG1029", "code": "TLMG1029", "name": "GESTIÓN DE INFRAESTRUCTURA Y SERVICIOS TI", "components": "2/1/3", "sum": 6, "level": "L400-1", "col": 4 },
+        { "id": "ITIN1", "code": "ITINERARIO 1", "name": "ITINERARIO I", "components": "3/0/6", "sum": 9, "level": "L400-1", "col": 5 },
+        { "id": "TLMG1031", "code": "TLMG1031", "name": "MATERIA INTEGRADORA DE TELEMÁTICA &39", "components": "3/0/6", "sum": 9, "level": "L400-2", "col": 4, "isIntegradora": true },
+        { "id": "ITIN2", "code": "ITINERARIO 2", "name": "ITINERARIO II", "components": "3/0/6", "sum": 9, "level": "L400-2", "col": 5 }
+      ],
+      "connections": [
+        { "from": "MATG1045", "to": "MATG1046" },
+        { "from": "FISG1005", "to": "FISG1006" },
+        { "from": "CCPG1043", "to": "CCPG1052" },
+        { "from": "MATG1049", "to": "MATG1050" },
+        { "from": "IDIG1006", "to": "IDIG1007" },
+        { "from": "IDIG1007", "to": "IDIG1008" },
+        { "from": "IDIG1008", "to": "IDIG1009" },
+        { "from": "IDIG1009", "to": "IDIG1010" },
+        { "from": "TLMG1032", "to": "TLMG1030" },
+        { "from": "MATG1045", "to": "FISG1005" },
+        { "from": "MATG1046", "to": "FISG1006" },
+        { "from": "CCPG1043", "to": "ESTG1034" },
+        { "from": "CCPG1043", "to": "TICG1018" },
+        { "from": "FISG1006", "to": "EYAG1044" },
+        { "from": "CCPG1052", "to": "CCPG1051" },
+        { "from": "TLMG1036", "to": "TLMG1022" },
+        { "from": "MATG1045", "to": "MATG1049" },
+        { "from": "MATG1046", "to": "ESTG1034" },
+        { "from": "TLMG1032", "to": "TLMG1034" },
+        { "from": "TLMG1032", "to": "TLMG1033" },
+        { "from": "TLMG1032", "to": "CCPG1055" },
+        { "from": "MATG1050", "to": "TLMG1027" },
+        { "from": "ESTG1034", "to": "TLMG1028" },
+        { "from": "EYAG1044", "to": "EYAG1046" },
+        { "from": "ELEG1034", "to": "EYAG1034" },
+        { "from": "TLMG1030", "to": "TLMG1028" },
+        { "from": "TLMG1030", "to": "TLMG1025" },
+        { "from": "CCPG1051", "to": "TLMG1035" },
+        { "from": "CCPG1051", "to": "CCPG1055" },
+        { "from": "TLMG1022", "to": "TLMG1029" },
+        { "from": "TLMG1022", "to": "TLMG1034" },
+        { "from": "TLMG1022", "to": "TLMG1026" },
+        { "from": "TLMG1028", "to": "TLMG1027" },
+        { "from": "TLMG1033", "to": "TLMG1035" },
+        { "from": "FISG1006", "to": "ELEG1034" }
+      ]
+    };
+
+    let state = JSON.parse(JSON.stringify(initialData));
+    let currentMode = 'drag';
+    let selectedSourceId = null;
+
+    function calculateCredits(subj) {
+      const baseCredits = subj.sum / 3;
+      if (subj.isIntegradora || subj.name.toUpperCase().includes("INTEGRADORA")) {
+        return baseCredits + 5;
+      }
+      return baseCredits;
+    }
+
+    function isBasicMathSubject(name) {
+      const n = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const keywords = ["calculo", "fisica", "algebra", "estadistica", "ecuaciones", "matematicas"];
+      return keywords.some(kw => n.includes(kw));
+    }
+
+    // ACTUALIZA TANTO CRÉDITOS BÁSICOS COMO EL TOTAL GENERAL
+    function updateCreditsSummary() {
+      // Créditos de Ciencias Básicas
+      const basicSubjects = state.subjects.filter(s => isBasicMathSubject(s.name));
+      const totalBasicCredits = basicSubjects.reduce((acc, curr) => acc + calculateCredits(curr), 0);
+      const basicSummaryEl = document.getElementById('basic-credits-summary');
+      if (basicSummaryEl) {
+        basicSummaryEl.innerHTML = `📐 Créditos Ciencias Básicas: <b>${totalBasicCredits}</b>`;
+      }
+
+      // Total de Créditos de Toda la Malla
+      const grandTotalCredits = state.subjects.reduce((acc, curr) => acc + calculateCredits(curr), 0);
+      const totalSummaryEl = document.getElementById('total-credits-summary');
+      if (totalSummaryEl) {
+        totalSummaryEl.innerHTML = `🎓 Total Créditos Malla: <b>${grandTotalCredits}</b>`;
+      }
+    }
+
+    function init() {
+      renderBoard();
+      setTimeout(drawConnections, 100);
+      window.addEventListener('resize', drawConnections);
+    }
+
+    function setMode(mode) {
+      currentMode = mode;
+      selectedSourceId = null;
+      document.getElementById('btn-mode-drag').classList.toggle('active', mode === 'drag');
+      document.getElementById('btn-mode-connect').classList.toggle('active', mode === 'connect');
+      clearHighlights();
+      renderBoard();
+      drawConnections();
+    }
+
+    function renderBoard() {
+      const board = document.getElementById('board');
+      board.innerHTML = '';
+
+      state.levels.forEach(level => {
+        const row = document.createElement('div');
+        row.className = 'level-row';
+
+        const subjectsInLevel = state.subjects.filter(s => s.level === level.id);
+        const totalCredits = subjectsInLevel.reduce((acc, curr) => acc + calculateCredits(curr), 0);
+
+        row.innerHTML = `
+          <div class="level-header">
+            <span>${level.name}</span>
+            <span class="level-credits">${totalCredits} Créditos</span>
+          </div>
+          <div class="level-content-grid" id="grid-${level.id}"></div>
+        `;
+
+        board.appendChild(row);
+
+        const gridContainer = row.querySelector('.level-content-grid');
+
+        for (let colIndex = 0; colIndex < NUM_COLUMNS; colIndex++) {
+          const cell = document.createElement('div');
+          cell.className = 'grid-cell';
+          cell.dataset.levelId = level.id;
+          cell.dataset.col = colIndex;
+
+          cell.ondragover = (e) => { e.preventDefault(); cell.classList.add('drag-over'); };
+          cell.ondragleave = () => cell.classList.remove('drag-over');
+          cell.ondrop = (e) => handleDrop(e, level.id, colIndex);
+
+          const subject = subjectsInLevel.find(s => s.col === colIndex);
+          if (subject) {
+            cell.appendChild(createSubjectCard(subject));
+          }
+
+          gridContainer.appendChild(cell);
+        }
+      });
+
+      updateCreditsSummary();
+    }
+
+    function createSubjectCard(subj) {
+      const card = document.createElement('div');
+      const isBasic = isBasicMathSubject(subj.name);
+      card.className = `subject-card ${isBasic ? 'basic-math' : ''}`;
+      card.id = `card-${subj.id}`;
+      card.draggable = (currentMode === 'drag');
+
+      const credits = calculateCredits(subj).toFixed(1).replace('.0', '');
+
+      card.innerHTML = `
+        <button class="edit-btn" onclick="openModalForEdit(event, '${subj.id}')">✏️</button>
+        <div class="subject-header">
+          <span>${subj.components}</span>
+          <span>${subj.sum}</span>
+        </div>
+        <div class="subject-title">${subj.name}</div>
+        <div class="subject-footer">
+          <span>${subj.code}</span>
+          <span><b>${credits} CR</b></span>
+        </div>
+      `;
+
+      card.ondragstart = (e) => { e.dataTransfer.setData('text/plain', subj.id); };
+      card.onclick = () => handleCardClick(subj.id);
+      card.onmouseenter = () => highlightConnections(subj.id);
+      card.onmouseleave = () => clearHighlights();
+
+      return card;
+    }
+
+    function handleDrop(e, targetLevelId, targetCol) {
+      e.preventDefault();
+      document.querySelectorAll('.grid-cell').forEach(c => c.classList.remove('drag-over'));
+
+      const subjectId = e.dataTransfer.getData('text/plain');
+      const subject = state.subjects.find(s => s.id === subjectId);
+      const occupied = state.subjects.find(s => s.level === targetLevelId && s.col === targetCol && s.id !== subjectId);
+
+      if (subject && !occupied) {
+        subject.level = targetLevelId;
+        subject.col = targetCol;
+        renderBoard();
+        drawConnections();
+      }
+    }
+
+    function handleCardClick(id) {
+      if (currentMode !== 'connect') return;
+
+      if (!selectedSourceId) {
+        selectedSourceId = id;
+        document.getElementById(`card-${id}`).classList.add('connecting-source');
+      } else if (selectedSourceId === id) {
+        document.getElementById(`card-${id}`).classList.remove('connecting-source');
+        selectedSourceId = null;
+      } else {
+        const existingIdx = state.connections.findIndex(
+          c => (c.from === selectedSourceId && c.to === id) || (c.from === id && c.to === selectedSourceId)
+        );
+
+        if (existingIdx >= 0) {
+          state.connections.splice(existingIdx, 1);
+        } else {
+          state.connections.push({ from: selectedSourceId, to: id });
+        }
+
+        document.getElementById(`card-${selectedSourceId}`).classList.remove('connecting-source');
+        selectedSourceId = null;
+        drawConnections();
+      }
+    }
+
+    function drawConnections() {
+      const svg = document.getElementById('connections-layer');
+      svg.innerHTML = '';
+
+      const containerRect = document.querySelector('.board-container').getBoundingClientRect();
+
+      state.connections.forEach((conn, index) => {
+        const fromCard = document.getElementById(`card-${conn.from}`);
+        const toCard = document.getElementById(`card-${conn.to}`);
+
+        if (!fromCard || !toCard) return;
+
+        const subjFrom = state.subjects.find(s => s.id === conn.from);
+        const subjTo = state.subjects.find(s => s.id === conn.to);
+
+        const rectFrom = fromCard.getBoundingClientRect();
+        const rectTo = toCard.getBoundingClientRect();
+
+        const isSameLevel = (subjFrom && subjTo && subjFrom.level === subjTo.level);
+
+        const levelFromIdx = state.levels.findIndex(l => l.id === subjFrom.level);
+        const levelToIdx = state.levels.findIndex(l => l.id === subjTo.level);
+        const levelDistance = Math.abs(levelToIdx - levelFromIdx);
+
+        let pathData = "";
+
+        if (isSameLevel) {
+          const x1 = rectFrom.left + rectFrom.width / 2 - containerRect.left;
+          const y1 = rectFrom.top - containerRect.top;
+          const x2 = rectTo.left + rectTo.width / 2 - containerRect.left;
+          const y2 = rectTo.top - containerRect.top;
+
+          const distance = Math.abs(x2 - x1);
+          const arcHeight = Math.min(Math.max(distance * 0.35, 25), 50);
+
+          pathData = `M ${x1} ${y1} C ${x1} ${y1 - arcHeight}, ${x2} ${y2 - arcHeight}, ${x2} ${y2}`;
+        } else {
+          const x1 = rectFrom.left + rectFrom.width / 2 - containerRect.left;
+          const y1 = rectFrom.bottom - containerRect.top;
+          const x2 = rectTo.left + rectTo.width / 2 - containerRect.left;
+          const y2 = rectTo.top - containerRect.top;
+
+          const offsetDirection = (index % 2 === 0) ? 1 : -1;
+          const curveOffset = (levelDistance > 1) ? (levelDistance * 18 * offsetDirection) : 0;
+
+          const controlY1 = y1 + (Math.abs(y2 - y1) * 0.45);
+          const controlY2 = y2 - (Math.abs(y2 - y1) * 0.45);
+
+          pathData = `M ${x1} ${y1} C ${x1 + curveOffset} ${controlY1}, ${x2 + curveOffset} ${controlY2}, ${x2} ${y2}`;
+        }
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', pathData);
+        path.setAttribute('class', `connection ${isSameLevel ? 'corequisite' : ''}`);
+        path.dataset.from = conn.from;
+        path.dataset.to = conn.to;
+
+        svg.appendChild(path);
+      });
+    }
+
+    function highlightConnections(id) {
+      clearHighlights();
+
+      state.connections.forEach(c => {
+        if (c.to === id) {
+          const el = document.getElementById(`card-${c.from}`);
+          if (el) el.classList.add('highlight-req');
+        }
+        if (c.from === id) {
+          const el = document.getElementById(`card-${c.to}`);
+          if (el) el.classList.add('highlight-next');
+        }
+      });
+
+      document.querySelectorAll('path.connection').forEach(path => {
+        if (path.dataset.to === id) path.classList.add('highlight-req');
+        if (path.dataset.from === id) path.classList.add('highlight-next');
+      });
+    }
+
+    function clearHighlights() {
+      document.querySelectorAll('.subject-card').forEach(el => {
+        el.classList.remove('highlight-req', 'highlight-next');
+      });
+      document.querySelectorAll('path.connection').forEach(path => {
+        path.classList.remove('highlight-req', 'highlight-next');
+      });
+    }
+
+    /* EXPORTACIÓN E IMPORTACIÓN JSON */
+    function exportJSON() {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", "malla_telematica_personalizada.json");
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    }
+
+    function triggerImportJSON() {
+      document.getElementById('import-file-input').click();
+    }
+
+    function importJSON(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const importedData = JSON.parse(e.target.result);
+          if (importedData.levels && importedData.subjects && importedData.connections) {
+            state = importedData;
+            renderBoard();
+            drawConnections();
+            alert('¡Malla importada y cargada con éxito desde el archivo JSON!');
+          } else {
+            alert('El archivo JSON no tiene la estructura válida de una malla.');
+          }
+        } catch (err) {
+          alert('Ocurrió un error al leer el archivo JSON.');
+        }
+      };
+      reader.readAsText(file);
+      event.target.value = '';
+    }
+
+    /* MODAL DE EDICIÓN / CREACIÓN */
+    function openModalForCreate() {
+      document.getElementById('modal-title').innerText = 'Agregar Nueva Materia';
+      document.getElementById('edit-id').value = '';
+      document.getElementById('edit-name').value = '';
+      document.getElementById('edit-code').value = '';
+      document.getElementById('edit-components').value = '3/1/5';
+      document.getElementById('edit-sum').value = 9;
+      document.getElementById('level-select-group').style.display = 'block';
+      document.getElementById('btn-delete').style.display = 'none';
+      document.getElementById('modal-overlay').style.display = 'flex';
+    }
+
+    function openModalForEdit(e, id) {
+      e.stopPropagation();
+      const subj = state.subjects.find(s => s.id === id);
+      if (!subj) return;
+
+      document.getElementById('modal-title').innerText = 'Editar Materia';
+      document.getElementById('edit-id').value = subj.id;
+      document.getElementById('edit-name').value = subj.name;
+      document.getElementById('edit-code').value = subj.code;
+      document.getElementById('edit-components').value = subj.components;
+      document.getElementById('edit-sum').value = subj.sum;
+      document.getElementById('level-select-group').style.display = 'none';
+      document.getElementById('btn-delete').style.display = 'block';
+      document.getElementById('modal-overlay').style.display = 'flex';
+    }
+
+    function closeModal() { document.getElementById('modal-overlay').style.display = 'none'; }
+
+    function saveSubjectFromModal() {
+      const id = document.getElementById('edit-id').value;
+      const name = document.getElementById('edit-name').value.trim();
+      const code = document.getElementById('edit-code').value.trim();
+      const components = document.getElementById('edit-components').value.trim();
+      const sum = parseFloat(document.getElementById('edit-sum').value) || 0;
+
+      if (!name || !code) { alert('Por favor ingresa un nombre y código válidos.'); return; }
+
+      if (id) {
+        const subj = state.subjects.find(s => s.id === id);
+        if (subj) { subj.name = name; subj.code = code; subj.components = components; subj.sum = sum; }
+      } else {
+        const levelId = document.getElementById('edit-level').value;
+        const newId = 'CUSTOM_' + Date.now();
+        const usedCols = state.subjects.filter(s => s.level === levelId).map(s => s.col);
+        let freeCol = 0;
+        for (let i = 0; i < NUM_COLUMNS; i++) {
+          if (!usedCols.includes(i)) { freeCol = i; break; }
+        }
+        state.subjects.push({ id: newId, code: code, name: name, components: components, sum: sum, level: levelId, col: freeCol });
+      }
+
+      closeModal();
+      renderBoard();
+      drawConnections();
+    }
+
+    function deleteSubject() {
+      const id = document.getElementById('edit-id').value;
+      if (!id) return;
+
+      if (confirm('¿Seguro que deseas eliminar esta materia?')) {
+        state.subjects = state.subjects.filter(s => s.id !== id);
+        state.connections = state.connections.filter(c => c.from !== id && c.to !== id);
+        closeModal();
+        renderBoard();
+        drawConnections();
+      }
+    }
+
+    function resetLayout() {
+      if (confirm('¿Deseas reiniciar la malla a tu estado base personalizado?')) {
+        state = JSON.parse(JSON.stringify(initialData));
+        renderBoard();
+        drawConnections();
+      }
+    }
+
+    window.onload = init;
+  </script>
+</body>
+</html>
