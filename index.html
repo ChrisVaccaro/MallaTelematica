@@ -484,7 +484,7 @@
       const grandTotalCredits = state.subjects.reduce((acc, curr) => acc + calculateCredits(curr), 0);
       const totalSummaryEl = document.getElementById('total-credits-summary');
       if (totalSummaryEl) {
-        totalSummaryEl.innerHTML = `🎓 Total Créditos Malla: <b>${grandTotalCredits}</b>`;
+        totalSummaryEl.innerHTML = `🎓 Total Créditos Malla: <b>${grandTotalCredits+5}</b>`;
       }
     }
 
