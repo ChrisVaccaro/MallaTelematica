@@ -466,7 +466,7 @@
 
     function isBasicMathSubject(name) {
       const n = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-      const keywords = ["calculo", "fisica", "algebra", "estadistica", "ecuaciones", "matematicas"];
+      const keywords = ["calculo", "fisica", "algebra", "estadistica", "ecuaciones", "matematicas","simulacion"];
       return keywords.some(kw => n.includes(kw));
     }
 
