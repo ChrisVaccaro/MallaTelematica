@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Malla Curricular Interactiva - ESPOL</title>
 
+  <!-- Librería para manipulación y generación de archivos Excel (.xlsx) -->
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+
   <style>
     :root {
       --bg-color: #f8fafc;
@@ -105,6 +108,8 @@
 
     .btn-add { background-color: #10b981; color: white; border-color: #10b981; }
     .btn-add:hover { background-color: #059669; }
+    .btn-excel { background-color: #059669; color: white; border-color: #059669; }
+    .btn-excel:hover { background-color: #047857; }
     .btn-help { background-color: #f8fafc; color: #3b82f6; border: 1px solid #93c5fd; font-weight: 700; }
     .btn-help:hover { background-color: #eff6ff; color: #1d4ed8; border-color: #3b82f6; }
     .btn-icon-only { padding: 8px; width: 36px; display: flex; justify-content: center; align-items: center; }
@@ -260,6 +265,7 @@
       </div>
       
       <input type="file" id="import-file-input" accept=".json" style="display: none;" onchange="importJSONFromFile(event)">
+      <button class="btn-excel" onclick="procesarYDescargarExcel()">📥 Generar Malla Excel</button>
       <button class="btn-danger" onclick="resetLayout()">🗑️ Vaciar Malla</button>
     </div>
     <div class="toolbar-divider"></div>
@@ -513,7 +519,7 @@
 
     function isBasicMathSubject(name) {
       const n = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-      const keywords = ["calculo", "fisica", "algebra", "estadistica", "ecuaciones", "matematicas", "quimica"];
+      const keywords = ["calculo", "fisica", "algebra", "estadistica", "ecuaciones", "matematicas", "quimica", "evaluacion"];
       return keywords.some(kw => n.includes(kw));
     }
 
@@ -538,7 +544,6 @@
     }
 
     function init() {
-      // 1. Verificar si hay un autoguardado en LocalStorage
       const savedState = localStorage.getItem('malla_espol_autosave');
       if (savedState) {
         if (confirm("Tienes una malla sin guardar de tu sesión anterior. ¿Deseas restaurarla?")) {
@@ -749,6 +754,39 @@
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state, null, 2));
       const downloadAnchor = document.createElement('a'); downloadAnchor.setAttribute("href", dataStr); downloadAnchor.setAttribute("download", "malla_espol_personalizada.json"); document.body.appendChild(downloadAnchor); downloadAnchor.click(); downloadAnchor.remove();
       showToast('Archivo JSON exportado correctamente.', 'success');
+    }
+
+    // --- FUNCIÓN PARA PROCESAR Y DESCARGAR EL EXCEL USANDO LA PLANTILLA ---
+    async function procesarYDescargarExcel() {
+      try {
+        showToast('Procesando matriz curricular...', 'info');
+        const fileUrl = 'plantillas/excel_base.xlsx';
+        
+        const response = await fetch(fileUrl);
+        if (!response.ok) {
+          throw new Error(`No se pudo obtener el archivo base (${response.status})`);
+        }
+        
+        const arrayBuffer = await response.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+
+        // Inyección de prueba temporal en la celda F10
+        const datosPrueba = [
+          ["DATO_PRUEBA_INYECCION"]
+        ];
+        
+        XLSX.utils.sheet_add_aoa(worksheet, datosPrueba, { origin: "F10" });
+
+        XLSX.writeFile(workbook, "Malla_Generada_Modificada.xlsx");
+        showToast('Archivo Excel generado y descargado con éxito.', 'success');
+
+      } catch (error) {
+        console.error("Error al procesar el Excel:", error);
+        showToast('Error: Verifica que "excel_base.xlsx" esté en la carpeta "plantillas/".', 'error');
+      }
     }
 
     function openModalForCreate(e) {
