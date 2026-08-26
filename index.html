@@ -6,7 +6,8 @@
   <title>Malla Curricular Interactiva - ESPOL</title>
 
   <!-- Librería para manipulación y generación de archivos Excel (.xlsx) -->
-  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 
   <style>
     :root {
@@ -761,31 +762,30 @@
       try {
         showToast('Procesando matriz curricular...', 'info');
         const fileUrl = 'plantillas/excel_base.xlsx';
-        
+    
         const response = await fetch(fileUrl);
-        if (!response.ok) {
-          throw new Error(`No se pudo obtener el archivo base (${response.status})`);
-        }
-        
+        if (!response.ok) throw new Error(`No se pudo obtener el archivo (${response.status})`);
+    
         const arrayBuffer = await response.arrayBuffer();
-        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-
-        // Inyección de prueba temporal en la celda F10
-        const datosPrueba = [
-          ["DATO_PRUEBA_INYECCION"]
-        ];
-        
-        XLSX.utils.sheet_add_aoa(worksheet, datosPrueba, { origin: "F10" });
-
-        XLSX.writeFile(workbook, "Malla_Generada_Modificada.xlsx");
-        showToast('Archivo Excel generado y descargado con éxito.', 'success');
-
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(arrayBuffer);
+    
+        // Seleccionar la primera hoja
+        const worksheet = workbook.worksheets[0];
+    
+        // Modificar únicamente el valor sin alterar formato ni borde
+        const cell = worksheet.getCell('F10');
+        cell.value = "DATO_PRUEBA_INYECCION";
+    
+        // Descargar conservando el 100% del estilo original
+        const buffer = await workbook.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+        saveAs(blob, "Malla_Generada_Modificada.xlsx");
+    
+        showToast('Excel generado conservando estilos.', 'success');
       } catch (error) {
         console.error("Error al procesar el Excel:", error);
-        showToast('Error: Verifica que "excel_base.xlsx" esté en la carpeta "plantillas/".', 'error');
+        showToast('Error al procesar la plantilla.', 'error');
       }
     }
 
