@@ -109,8 +109,6 @@
 
     .btn-add { background-color: #10b981; color: white; border-color: #10b981; }
     .btn-add:hover { background-color: #059669; }
-    .btn-excel { background-color: #059669; color: white; border-color: #059669; }
-    .btn-excel:hover { background-color: #047857; }
     .btn-help { background-color: #f8fafc; color: #3b82f6; border: 1px solid #93c5fd; font-weight: 700; }
     .btn-help:hover { background-color: #eff6ff; color: #1d4ed8; border-color: #3b82f6; }
     .btn-icon-only { padding: 8px; width: 36px; display: flex; justify-content: center; align-items: center; }
@@ -138,7 +136,7 @@
       color: #64748b; text-transform: uppercase; background-color: #f8fafc;
     }
     .dropdown-divider { height: 1px; background-color: var(--border-color); margin: 0; }
-    .btn-primary-option { color: var(--accent-color) !important; font-weight: 700 !important; }
+    .btn-primary-option { color: #059669 !important; font-weight: 700 !important; }
     .btn-back-option { color: #64748b !important; background-color: #f8fafc; border-bottom: 1px solid var(--border-color); }
     .btn-back-option:hover { color: var(--primary-color) !important; background-color: #e2e8f0 !important; }
 
@@ -256,7 +254,15 @@
     <div class="toolbar-divider"></div>
 
     <div class="toolbar-group">
-      <button onclick="exportJSON()">💾 Exportar Malla</button>
+      
+      <!-- NUEVO MENÚ DESPLEGABLE DE GUARDADO -->
+      <div class="dropdown">
+        <button onclick="toggleSaveDropdown(event)" class="dropbtn">💾 Guardar 🔽</button>
+        <div id="dropdown-save" class="dropdown-content">
+          <a href="#" onclick="exportJSON(); closeAllDropdowns();">📄 Guardar borrador (JSON)</a>
+          <a href="#" onclick="procesarYDescargarExcel(); closeAllDropdowns();" class="btn-primary-option">📊 Exportar excel final</a>
+        </div>
+      </div>
       
       <div class="dropdown">
         <button onclick="toggleJSONDropdown(event)" class="dropbtn">📂 Cargar Malla 🔽</button>
@@ -266,7 +272,6 @@
       </div>
       
       <input type="file" id="import-file-input" accept=".json" style="display: none;" onchange="importJSONFromFile(event)">
-      <button class="btn-excel" onclick="procesarYDescargarExcel()">📥 Generar Malla Excel</button>
       <button class="btn-danger" onclick="resetLayout()">🗑️ Vaciar Malla</button>
     </div>
     <div class="toolbar-divider"></div>
@@ -394,7 +399,7 @@
         renderMenuFacultades();
       } catch (err) {
         container.innerHTML = `
-          <a href="#" class="btn-primary-option" onclick="triggerImportJSON();">📁 Cargar archivo local...</a>
+          <a href="#" style="color: var(--accent-color); font-weight: bold;" onclick="triggerImportJSON();">📁 Cargar archivo local...</a>
           <div class="dropdown-divider"></div>
           <div style="padding: 10px; font-size: 0.8em; color: #ef4444; text-align: center;">No se pudo cargar el catálogo.<br>Asegúrate de tener "catalogo.json" en GitHub.</div>
         `;
@@ -405,7 +410,7 @@
       const container = document.getElementById('dropdown-json');
       if (!catalogoGlobal) return;
 
-      let html = `<a href="#" class="btn-primary-option" onclick="triggerImportJSON();">📁 Cargar archivo local...</a>`;
+      let html = `<a href="#" style="color: var(--accent-color); font-weight: bold;" onclick="triggerImportJSON();">📁 Cargar archivo local...</a>`;
       html += `<div class="dropdown-divider"></div>`;
       html += `<div class="dropdown-header">Facultades</div>`;
 
@@ -437,13 +442,22 @@
       renderMenuFacultades();
     }
 
+    // --- MANEJO DE MENÚS DESPLEGABLES ---
     function toggleJSONDropdown(e) {
       e.preventDefault(); e.stopPropagation();
+      closeAllDropdowns();
       const dropdown = document.getElementById("dropdown-json");
       dropdown.classList.toggle("show");
       if (dropdown.classList.contains("show")) {
         renderMenuFacultades();
       }
+    }
+
+    function toggleSaveDropdown(e) {
+      e.preventDefault(); e.stopPropagation();
+      closeAllDropdowns();
+      const dropdown = document.getElementById("dropdown-save");
+      dropdown.classList.toggle("show");
     }
 
     function closeAllDropdowns() {
@@ -813,7 +827,7 @@
         // 3. Descargar el archivo procesado respetando colores y estructura original
         const buffer = await workbook.xlsx.writeBuffer();
         const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-        saveAs(blob, "Matriz_Curricular_ESPOL.xlsx");
+        saveAs(blob, "2. Estructura curricular propuesta y tabla de equivalencias.xlsx");
         
         showToast('Malla exportada a Excel con éxito.', 'success');
       } catch (error) {
