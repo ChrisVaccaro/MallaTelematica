@@ -2,7 +2,7 @@
 
 ¡Bienvenido! Esta es una herramienta web interactiva diseñada para visualizar, planificar y personalizar la malla curricular con gestión dinámica de créditos, correquisitos, horas ACD/APE y ciencias básicas.
 
-**[👉 Haz clic aquí para abrir la Malla Curricular Interactiva en vivo](https://chrisvaccaro.github.io/MallaInteractivaESPOL/)**
+**[👉 Haz clic aquí para abrir la Malla Curricular Interactiva en vivo](https://chrisvaccaro.github.io/MallaTelematica/)**
 
 ---
 ## Autoría y Licencia
