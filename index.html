@@ -379,12 +379,10 @@
       }, 3500);
     }
 
-    // --- SISTEMA DE GUARDADO AUTOMÁTICO ---
     function persistState() {
       localStorage.setItem('malla_espol_autosave', JSON.stringify(state));
     }
 
-    // --- LÓGICA DEL MENÚ DE NAVEGACIÓN (FACULTADES -> CARRERAS) ---
     let catalogoGlobal = null;
 
     async function loadCatalogo() {
@@ -506,10 +504,11 @@
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { redo(); }
     });
 
+    // Se extraen ahora los 3 valores: ACD, APE, AA
     function parseHoursComponents(componentsStr) {
-      if (!componentsStr) return { acd: 0, ape: 0 };
+      if (!componentsStr) return { acd: 0, ape: 0, aa: 0 };
       const parts = componentsStr.split('/').map(p => parseFloat(p) || 0);
-      return { acd: parts[0] || 0, ape: parts[1] || 0 };
+      return { acd: parts[0] || 0, ape: parts[1] || 0, aa: parts[2] || 0 };
     }
 
     function calculateCredits(subj) {
@@ -580,7 +579,9 @@
 
         let totalACD = 0; let totalAPE = 0;
         subjectsInLevel.forEach(subj => {
-          const hours = parseHoursComponents(subj.components); totalACD += hours.acd; totalAPE += hours.ape;
+          const hours = parseHoursComponents(subj.components); 
+          totalACD += hours.acd; 
+          totalAPE += hours.ape;
         });
 
         row.innerHTML = `
@@ -757,35 +758,67 @@
       showToast('Archivo JSON exportado correctamente.', 'success');
     }
 
-    // --- FUNCIÓN PARA PROCESAR Y DESCARGAR EL EXCEL USANDO LA PLANTILLA ---
+    // --- FUNCIÓN PARA EXTRAER LA MALLA Y MAPEARLA EN LA PLANTILLA EXCEL ---
     async function procesarYDescargarExcel() {
       try {
         showToast('Procesando matriz curricular...', 'info');
         const fileUrl = 'plantillas/excel_base.xlsx';
-    
+        
         const response = await fetch(fileUrl);
-        if (!response.ok) throw new Error(`No se pudo obtener el archivo (${response.status})`);
-    
+        if (!response.ok) throw new Error(`No se pudo obtener el archivo base (${response.status})`);
+        
         const arrayBuffer = await response.arrayBuffer();
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.load(arrayBuffer);
-    
-        // Seleccionar la primera hoja
-        const worksheet = workbook.worksheets[0];
-    
-        // Modificar únicamente el valor sin alterar formato ni borde
-        const cell = worksheet.getCell('F10');
-        cell.value = "DATO_PRUEBA_INYECCION";
-    
-        // Descargar conservando el 100% del estilo original
+        
+        // 1. Obtener la hoja correcta
+        const worksheet = workbook.getWorksheet('MALLA CURRICULAR');
+        if (!worksheet) {
+          throw new Error('La pestaña "MALLA CURRICULAR" no se encontró en la plantilla.');
+        }
+
+        // 2. Iterar por la cuadrícula de tu app (9 Niveles x 8 Columnas)
+        for (let lvlIdx = 0; lvlIdx < state.levels.length; lvlIdx++) {
+          const levelId = state.levels[lvlIdx].id;
+          
+          // Cálculo de Filas en Excel (4 filas de salto por semestre)
+          const nameRow = 6 + (lvlIdx * 4);
+          const hoursRow = 7 + (lvlIdx * 4);
+
+          for (let colIdx = 0; colIdx < NUM_COLUMNS; colIdx++) {
+            // Cálculo de la Columna inicial en Excel (9 columnas de salto entre materias, empezando en G = 7)
+            const startCol = 7 + (colIdx * 9); 
+            
+            // Buscar si hay una materia en esta posición
+            const subject = state.subjects.find(s => s.level === levelId && s.col === colIdx);
+
+            if (subject) {
+              const hours = parseHoursComponents(subject.components);
+              
+              // Inyectar Datos Reales
+              worksheet.getCell(nameRow, startCol).value = subject.name;     // Celda Nombre (Combinada)
+              worksheet.getCell(hoursRow, startCol + 1).value = hours.acd;   // ACD (Col + 1)
+              worksheet.getCell(hoursRow, startCol + 3).value = hours.ape;   // APE (Col + 3)
+              worksheet.getCell(hoursRow, startCol + 5).value = hours.aa;    // AA  (Col + 5)
+            } else {
+              // Limpiar celdas vacías (si moviste una materia y la casilla quedó blanca)
+              worksheet.getCell(nameRow, startCol).value = "";
+              worksheet.getCell(hoursRow, startCol + 1).value = 0;
+              worksheet.getCell(hoursRow, startCol + 3).value = 0;
+              worksheet.getCell(hoursRow, startCol + 5).value = 0;
+            }
+          }
+        }
+        
+        // 3. Descargar el archivo procesado respetando colores y estructura original
         const buffer = await workbook.xlsx.writeBuffer();
         const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-        saveAs(blob, "Malla_Generada_Modificada.xlsx");
-    
-        showToast('Excel generado conservando estilos.', 'success');
+        saveAs(blob, "Matriz_Curricular_ESPOL.xlsx");
+        
+        showToast('Malla exportada a Excel con éxito.', 'success');
       } catch (error) {
-        console.error("Error al procesar el Excel:", error);
-        showToast('Error al procesar la plantilla.', 'error');
+        console.error("Error al generar el Excel:", error);
+        showToast('Error al generar la malla. Revisa la consola.', 'error');
       }
     }
 
