@@ -2714,32 +2714,9 @@
 
       const jsonStr = JSON.stringify(state, null, 2);
       const blob = new Blob([jsonStr], { type: "application/json" });
-
-      try {
-        if (window.showSaveFilePicker) {
-            const handle = await window.showSaveFilePicker({
-                suggestedName: fileName,
-                types: [{
-                    description: 'Archivo JSON',
-                    accept: {'application/json': ['.json']}
-                }]
-            });
-            const writable = await handle.createWritable();
-            await writable.write(blob);
-            await writable.close();
-            showToast(`Archivo guardado correctamente.`, 'success');
-        } else {
-            // Plan B: Descarga clásica si el navegador no soporta File Picker
-            saveAs(blob, fileName);
-            showToast(`Archivo ${fileName} exportado correctamente.`, 'success');
-        }
-      } catch (error) {
-        // Ignoramos el error si el usuario simplemente le dio a "Cancelar" en la ventana
-        if (error.name !== 'AbortError') {
-            console.error("Error guardando el JSON:", error);
-            showToast('Error al guardar el archivo.', 'error');
-        }
-      }
+      
+      saveAs(blob, fileName);
+      showToast(`Archivo ${fileName} exportado correctamente.`, 'success');
     }
 
     async function procesarYDescargarExcel() {
@@ -3372,29 +3349,8 @@
         const buffer = await workbook.xlsx.writeBuffer(); 
         const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); 
         
-        try {
-            if (window.showSaveFilePicker) {
-                const handle = await window.showSaveFilePicker({
-                    suggestedName: "Malla Curricular propuesta.xlsx",
-                    types: [{
-                        description: 'Archivo Excel',
-                        accept: {'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx']}
-                    }]
-                });
-                const writable = await handle.createWritable();
-                await writable.write(blob);
-                await writable.close();
-                showToast('Malla exportada a Excel con éxito.', 'success');
-            } else {
-                saveAs(blob, "Malla Curricular propuesta.xlsx");
-                showToast('Malla exportada a Excel con éxito.', 'success');
-            }
-        } catch (saveError) {
-            if (saveError.name !== 'AbortError') {
-                console.error("Error guardando el Excel:", saveError);
-                showToast('Error al guardar el archivo Excel.', 'error');
-            }
-        }
+        saveAs(blob, "Malla Curricular propuesta.xlsx");
+        showToast('Malla exportada a Excel con éxito.', 'success');
         
       } catch (error) { console.error("Error al generar el Excel:", error); showToast('Error al generar la malla. Revisa la consola.', 'error'); }
     }
