@@ -1669,15 +1669,9 @@
 
         // Si hay columnas vacías al final, encogemos el tablero temporalmente
         if (columnsToShow < NUM_COLUMNS) {
-            // Leer la variable de CSS dinámicamente
-            const rootStyles = getComputedStyle(document.documentElement);
-            const currentGap = parseInt(rootStyles.getPropertyValue('--grid-gap')) || 30;
-
-            // Calcular el nuevo ancho exacto usando la variable
-            const gaps = columnsToShow > 0 ? columnsToShow - 1 : 0;
-            const newMinWidth = 220 + 32 + (columnsToShow * 200) + (gaps * currentGap);
-            wrapper.style.minWidth = `${newMinWidth}px`;
-
+            // Ya no calculamos el ancho manualmente. Gracias al min-width: max-content del CSS,
+            // el contenedor se abrazará perfectamente a las columnas visibles (incluyendo sus bordes).
+            
             grids.forEach(g => {
                 originalGridsStyle.push(g.style.gridTemplateColumns);
                 g.style.gridTemplateColumns = `repeat(${columnsToShow}, 200px)`;
