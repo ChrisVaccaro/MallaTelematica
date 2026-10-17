@@ -365,11 +365,7 @@
     .custom-tooltip::after { 
         content: ''; position: absolute; bottom: 100%; left: 50%; margin-left: -5px; border-width: 5px; border-style: solid; border-color: transparent transparent #1e293b transparent; 
     }
-    .subject-card:hover .custom-tooltip,
-    .subject-card.pinned .custom-tooltip {
-      opacity: 1; 
-      visibility: visible; 
-    }
+    .subject-card:hover .custom-tooltip { opacity: 1; visibility: visible; }
 
     .btn-fix {
         display: block; margin-top: 8px; padding: 6px; width: 100%; background-color: #3b82f6; color: white;
@@ -1173,9 +1169,16 @@
        }
        
        // --- INYECCIÓN DEL ÍCONO Y TOOLTIP ---
-       const tooltipSubjs = `Asignaturas: ${countRegulares}\nPrácticas: ${countPracticas}\nProyecto Integrador: ${countPI}`;
+       let tooltipParts = [];
+       if (countRegulares > 0) tooltipParts.push(`Asignaturas: ${countRegulares}`);
+       if (countPracticas > 0) tooltipParts.push(`Prácticas: ${countPracticas}`);
+       if (countPI > 0) tooltipParts.push(`Proyecto Integrador: ${countPI}`);
+
+       const tooltipSubjs = tooltipParts.join('\n');
+       const iconHtml = tooltipParts.length > 0 ? `<span title="${tooltipSubjs}" style="cursor:help; font-size:1.1em; color:var(--accent-color); margin-left: 6px;">ℹ️</span>` : '';
+       
+       // El número grande se queda limpio y centrado
        document.getElementById('stat-subjs').innerText = totalSubjects;
-       document.getElementById('info-subjs').title = tooltipSubjs;
        
        document.getElementById('stat-creds').innerText = totalCredits.toFixed(1).replace('.0','');
        
