@@ -1561,8 +1561,7 @@
       document.getElementById('btn-undo').disabled = (historyStack.length === 0); document.getElementById('btn-redo').disabled = (redoStack.length === 0);
     }
 
-    // --- NUEVA FUNCIÓN PARA EXPORTAR A PDF ---
-    // --- NUEVA FUNCIÓN PARA EXPORTAR A PDF ---
+    // --- NUEVA FUNCIÓN PARA EXPORTAR A PDF (A4 + Márgenes) ---
     async function exportToPDF() {
         const wrapper = document.getElementById('board-wrapper');
         if (!wrapper) return;
@@ -1609,23 +1608,43 @@
             const imgData = canvas.toDataURL('image/png');
             const { jsPDF } = window.jspdf;
             
-            // Creamos un PDF con formato personalizado adaptado al tamaño del canvas
+            // Creamos un PDF con formato estándar A4 horizontal
             const pdf = new jsPDF({
                 orientation: 'landscape',
                 unit: 'pt',
-                format: [canvas.width, canvas.height + 80] // Agregamos espacio superior para el título
+                format: 'a4'
             });
+
+            // Obtenemos las dimensiones exactas del A4 en puntos (aprox 842 x 595)
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = pdf.internal.pageSize.getHeight();
 
             const careerName = state.baseCareer ? state.baseCareer.toUpperCase() : 'MALLA PERSONALIZADA';
             const title = `MALLA CURRICULAR - ${careerName}`;
 
-            // Configurar y dibujar el título
-            pdf.setFontSize(28);
+            // Configurar y dibujar el título (letra más pequeña proporcional al A4)
+            pdf.setFontSize(18);
             pdf.setTextColor(15, 23, 42);
-            pdf.text(title, canvas.width / 2, 50, { align: 'center' });
+            pdf.text(title, pdfWidth / 2, 40, { align: 'center' });
 
-            // Dibujar la imagen de la malla debajo del título
-            pdf.addImage(imgData, 'PNG', 0, 80, canvas.width, canvas.height);
+            // 5. CÁLCULO DE MÁRGENES Y ESCALA PARA ENCAJAR EN A4
+            const marginX = 30; // Margen a los lados (izq/der)
+            const marginYTop = 65; // Margen superior debajo del título
+            const marginYBottom = 30; // Margen inferior
+            
+            const maxImgWidth = pdfWidth - (marginX * 2);
+            const maxImgHeight = pdfHeight - marginYTop - marginYBottom;
+
+            // Calcular la proporción para no deformar la imagen
+            const ratio = Math.min(maxImgWidth / canvas.width, maxImgHeight / canvas.height);
+            const imgWidth = canvas.width * ratio;
+            const imgHeight = canvas.height * ratio;
+            
+            // Calcular posición X para centrar la imagen perfectamente
+            const imgX = (pdfWidth - imgWidth) / 2;
+
+            // Dibujar la imagen de la malla escalada y centrada
+            pdf.addImage(imgData, 'PNG', imgX, marginYTop, imgWidth, imgHeight);
             
             pdf.save(`Malla_Curricular_${careerName.replace(/\s+/g, '_')}.pdf`);
             showToast('PDF descargado con éxito.', 'success');
