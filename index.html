@@ -1561,36 +1561,39 @@
       document.getElementById('btn-undo').disabled = (historyStack.length === 0); document.getElementById('btn-redo').disabled = (redoStack.length === 0);
     }
 
-    // --- NUEVA FUNCIÓN PARA EXPORTAR A PDF (A4 + Márgenes + Recorte Automático + Limpieza de Selección) ---
+    // --- NUEVA FUNCIÓN PARA EXPORTAR A PDF (A4 + Recorte + Bloqueo de Mouse) ---
     async function exportToPDF() {
         const wrapper = document.getElementById('board-wrapper');
         if (!wrapper) return;
 
         showToast('Generando PDF, por favor espera...', 'info');
 
-        // 1. Restaurar zoom a 100% temporalmente para asegurar buena calidad y alineación
+        // 1. BLOQUEO DE MOUSE: Evita que el reacomodo del zoom dispare efectos :hover accidentales
+        document.body.style.pointerEvents = 'none';
+
+        // 2. Restaurar zoom a 100% temporalmente para asegurar buena calidad y alineación
         const originalZoom = currentZoom;
         currentZoom = 1.0;
         applyZoom();
 
-        // 2. Detectar y desactivar temporalmente el modo de colores accesibles
+        // 3. Detectar y desactivar temporalmente el modo de colores accesibles
         const isAccessibleMode = document.body.classList.contains('accessible-mode');
         if (isAccessibleMode) {
             document.body.classList.remove('accessible-mode');
         }
 
-        // 3. Ocultar todas las etiquetas de "NUEVO" de las materias
+        // 4. Ocultar todas las etiquetas de "NUEVO" de las materias
         const newBadges = document.querySelectorAll('.badge-new');
         newBadges.forEach(badge => {
             badge.style.display = 'none';
         });
 
-        // 4. LIMPIEZA DE SELECCIÓN: Quitar el pin y los colores de requisitos (rojo/verde)
+        // 5. LIMPIEZA DE SELECCIÓN: Quitar el pin y los colores de requisitos (rojo/verde)
         pinnedSubjectId = null;
         clearHighlights();
         document.querySelectorAll('.subject-card').forEach(c => c.classList.remove('pinned'));
 
-        // 5. TRUCO PARA LAS FLECHAS: Clonar <defs> temporalmente dentro del SVG de conexiones
+        // 6. TRUCO PARA LAS FLECHAS: Clonar <defs> temporalmente dentro del SVG de conexiones
         const svgLayer = document.getElementById('connections-layer');
         const defsOriginal = document.querySelector('svg defs');
         let clonedDefs = null;
@@ -1600,7 +1603,7 @@
             svgLayer.appendChild(clonedDefs);
         }
 
-        // 6. RECORTE AUTOMÁTICO: Detectar la última columna ocupada
+        // 7. RECORTE AUTOMÁTICO: Detectar la última columna ocupada
         let maxCol = -1;
         const cfg = state.config || initialData.config;
         const visibleLevelIds = state.levels.slice(0, cfg.semesters).map(l => l.id);
@@ -1641,8 +1644,8 @@
             });
         }
 
-        // Pequeña pausa para asegurar que el navegador repinte el DOM con los cambios
-        await new Promise(r => setTimeout(r, 300));
+        // Pequeña pausa para asegurar que el navegador repinte el DOM con todos los cambios y sin hover
+        await new Promise(r => setTimeout(r, 350));
 
         try {
             const canvas = await html2canvas(wrapper, {
@@ -1673,7 +1676,7 @@
             pdf.setTextColor(15, 23, 42);
             pdf.text(title, pdfWidth / 2, 40, { align: 'center' });
 
-            // 7. CÁLCULO DE MÁRGENES Y ESCALA PARA ENCAJAR EN A4
+            // 8. CÁLCULO DE MÁRGENES Y ESCALA PARA ENCAJAR EN A4
             const marginX = 30; // Margen a los lados
             const marginYTop = 65; // Margen superior (debajo del título)
             const marginYBottom = 30; // Margen inferior
@@ -1698,7 +1701,7 @@
             console.error('Error al generar PDF:', err);
             showToast('Ocurrió un error al generar el PDF.', 'error');
         } finally {
-            // 8. DEVOLVER TODO A LA NORMALIDAD
+            // 9. DEVOLVER TODO A LA NORMALIDAD
             currentZoom = originalZoom;
             applyZoom();
 
@@ -1714,7 +1717,6 @@
                 clonedDefs.remove();
             }
 
-            // Restaurar columnas vacías si fueron ocultadas
             if (columnsToShow < NUM_COLUMNS) {
                 wrapper.style.minWidth = originalMinWidth;
                 grids.forEach((g, i) => {
@@ -1724,6 +1726,9 @@
                     item.el.style.display = item.display;
                 });
             }
+
+            // DESBLOQUEAR MOUSE
+            document.body.style.pointerEvents = '';
         }
     }
     
