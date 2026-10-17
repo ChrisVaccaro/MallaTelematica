@@ -1568,12 +1568,24 @@
 
         showToast('Generando PDF, por favor espera...', 'info');
 
-        // Restaurar zoom a 100% temporalmente para asegurar buena calidad y alineación
+        // 1. Restaurar zoom a 100% temporalmente para asegurar buena calidad y alineación
         const originalZoom = currentZoom;
         currentZoom = 1.0;
         applyZoom();
 
-        // Pequeña pausa para asegurar que el navegador repinte el DOM en 100%
+        // 2. Detectar y desactivar temporalmente el modo de colores accesibles
+        const isAccessibleMode = document.body.classList.contains('accessible-mode');
+        if (isAccessibleMode) {
+            document.body.classList.remove('accessible-mode');
+        }
+
+        // 3. Ocultar todas las etiquetas de "NUEVO" de las materias
+        const newBadges = document.querySelectorAll('.badge-new');
+        newBadges.forEach(badge => {
+            badge.style.display = 'none';
+        });
+
+        // Pequeña pausa para asegurar que el navegador repinte el DOM con los cambios
         await new Promise(r => setTimeout(r, 300));
 
         try {
@@ -1604,18 +1616,27 @@
             // Dibujar la imagen de la malla debajo del título
             pdf.addImage(imgData, 'PNG', 0, 80, canvas.width, canvas.height);
             
-            pdf.save(`Malla_Curricular_${careerName}.pdf`);
+            pdf.save(`Malla_Curricular_${careerName.replace(/\s+/g, '_')}.pdf`);
             showToast('PDF descargado con éxito.', 'success');
         } catch (err) {
             console.error('Error al generar PDF:', err);
             showToast('Ocurrió un error al generar el PDF.', 'error');
         } finally {
-            // Regresamos el zoom al valor que tenía el usuario
+            // Restaurar el zoom original
             currentZoom = originalZoom;
             applyZoom();
+
+            // Restaurar el modo de colores accesibles si estaba activado
+            if (isAccessibleMode) {
+                document.body.classList.add('accessible-mode');
+            }
+
+            // Restaurar las etiquetas de "NUEVO"
+            newBadges.forEach(badge => {
+                badge.style.display = ''; 
+            });
         }
     }
-
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') { cancelGhostConnection(); stopEdgeScroll(); }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { if (e.shiftKey) { redo(); } else { undo(); } } 
