@@ -365,7 +365,11 @@
     .custom-tooltip::after { 
         content: ''; position: absolute; bottom: 100%; left: 50%; margin-left: -5px; border-width: 5px; border-style: solid; border-color: transparent transparent #1e293b transparent; 
     }
-    .subject-card:hover .custom-tooltip { opacity: 1; visibility: visible; }
+    .subject-card:hover .custom-tooltip,
+    .subject-card.pinned .custom-tooltip {
+      opacity: 1; 
+      visibility: visible; 
+    }
 
     .btn-fix {
         display: block; margin-top: 8px; padding: 6px; width: 100%; background-color: #3b82f6; color: white;
@@ -456,7 +460,7 @@
     <div class="panel-section" style="margin-top: 30px;">
        <h3>Resumen del programa</h3>
        <div class="stats-grid">
-          <div class="stat-box"><b id="stat-subjs">0</b><span>Asignaturas</span></div>
+          <div class="stat-box"><b id="stat-subjs">0</b><span>Asignaturas <span id="info-subjs" style="cursor:help; font-size:1.1em; color:var(--accent-color);">ℹ️</span></span></div>
           <div class="stat-box"><b id="stat-creds">0</b><span>Créditos</span></div>
           <div class="stat-box"><b id="stat-hsem">0</b><span>Horas en semestres</span></div>
           <div class="stat-box"><b id="stat-hprog">0</b><span>Horas del programa <span title="Total de horas declaradas en el CES" style="cursor:help; font-size:1.1em; color:var(--accent-color);">ℹ️</span></span></div>
@@ -1170,7 +1174,8 @@
        
        // --- INYECCIÓN DEL ÍCONO Y TOOLTIP ---
        const tooltipSubjs = `Asignaturas: ${countRegulares}\nPrácticas: ${countPracticas}\nProyecto Integrador: ${countPI}`;
-       document.getElementById('stat-subjs').innerHTML = `${totalSubjects} <span title="${tooltipSubjs}" style="cursor:help; font-size:0.7em; color:var(--accent-color); margin-left: 6px;">ℹ️</span>`;
+       document.getElementById('stat-subjs').innerText = totalSubjects;
+       document.getElementById('info-subjs').title = tooltipSubjs;
        
        document.getElementById('stat-creds').innerText = totalCredits.toFixed(1).replace('.0','');
        
