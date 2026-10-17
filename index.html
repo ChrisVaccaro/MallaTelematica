@@ -1561,7 +1561,7 @@
       document.getElementById('btn-undo').disabled = (historyStack.length === 0); document.getElementById('btn-redo').disabled = (redoStack.length === 0);
     }
 
-    // --- NUEVA FUNCIÓN PARA EXPORTAR A PDF (A4 + Márgenes) ---
+    // --- NUEVA FUNCIÓN PARA EXPORTAR A PDF (A4 + Márgenes + Recorte Automático) ---
     async function exportToPDF() {
         const wrapper = document.getElementById('board-wrapper');
         if (!wrapper) return;
@@ -1595,6 +1595,47 @@
             svgLayer.appendChild(clonedDefs);
         }
 
+        // 5. RECORTE AUTOMÁTICO: Detectar la última columna ocupada
+        let maxCol = -1;
+        const cfg = state.config || initialData.config;
+        const visibleLevelIds = state.levels.slice(0, cfg.semesters).map(l => l.id);
+        
+        state.subjects.forEach(s => {
+            if (visibleLevelIds.includes(s.level) && s.col > maxCol) {
+                maxCol = s.col;
+            }
+        });
+        
+        // Asegurar que siempre se muestre al menos 1 columna para que el diseño no colapse
+        const columnsToShow = Math.max(1, maxCol + 1);
+
+        // Guardamos los estilos originales para restaurarlos después
+        const originalMinWidth = wrapper.style.minWidth;
+        const grids = document.querySelectorAll('.level-content-grid');
+        const originalGridsStyle = [];
+        const cells = document.querySelectorAll('.grid-cell');
+        const hiddenCells = [];
+
+        // Si hay columnas vacías al final, encogemos el tablero temporalmente
+        if (columnsToShow < NUM_COLUMNS) {
+            // Calcular el nuevo ancho exacto (Header 220px + Padding 32px + (Cols * 200px) + (Gaps * 14px))
+            const gaps = columnsToShow > 0 ? columnsToShow - 1 : 0;
+            const newMinWidth = 220 + 32 + (columnsToShow * 200) + (gaps * 14);
+            wrapper.style.minWidth = `${newMinWidth}px`;
+
+            grids.forEach(g => {
+                originalGridsStyle.push(g.style.gridTemplateColumns);
+                g.style.gridTemplateColumns = `repeat(${columnsToShow}, 200px)`;
+            });
+
+            cells.forEach(c => {
+                if (parseInt(c.dataset.col) >= columnsToShow) {
+                    hiddenCells.push({ el: c, display: c.style.display });
+                    c.style.display = 'none'; // Ocultar celda
+                }
+            });
+        }
+
         // Pequeña pausa para asegurar que el navegador repinte el DOM con los cambios
         await new Promise(r => setTimeout(r, 300));
 
@@ -1615,27 +1656,27 @@
                 format: 'a4'
             });
 
-            // Obtenemos las dimensiones exactas del A4 en puntos (aprox 842 x 595)
+            // Obtenemos las dimensiones exactas del A4 en puntos
             const pdfWidth = pdf.internal.pageSize.getWidth();
             const pdfHeight = pdf.internal.pageSize.getHeight();
 
             const careerName = state.baseCareer ? state.baseCareer.toUpperCase() : 'MALLA PERSONALIZADA';
             const title = `MALLA CURRICULAR - ${careerName}`;
 
-            // Configurar y dibujar el título (letra más pequeña proporcional al A4)
+            // Configurar y dibujar el título
             pdf.setFontSize(18);
             pdf.setTextColor(15, 23, 42);
             pdf.text(title, pdfWidth / 2, 40, { align: 'center' });
 
-            // 5. CÁLCULO DE MÁRGENES Y ESCALA PARA ENCAJAR EN A4
-            const marginX = 30; // Margen a los lados (izq/der)
-            const marginYTop = 65; // Margen superior debajo del título
+            // 6. CÁLCULO DE MÁRGENES Y ESCALA PARA ENCAJAR EN A4
+            const marginX = 30; // Margen a los lados
+            const marginYTop = 65; // Margen superior (debajo del título)
             const marginYBottom = 30; // Margen inferior
             
             const maxImgWidth = pdfWidth - (marginX * 2);
             const maxImgHeight = pdfHeight - marginYTop - marginYBottom;
 
-            // Calcular la proporción para no deformar la imagen
+            // Calcular la proporción para encoger la imagen y que no se deforme
             const ratio = Math.min(maxImgWidth / canvas.width, maxImgHeight / canvas.height);
             const imgWidth = canvas.width * ratio;
             const imgHeight = canvas.height * ratio;
@@ -1643,7 +1684,7 @@
             // Calcular posición X para centrar la imagen perfectamente
             const imgX = (pdfWidth - imgWidth) / 2;
 
-            // Dibujar la imagen de la malla escalada y centrada
+            // Dibujar la imagen de la malla
             pdf.addImage(imgData, 'PNG', imgX, marginYTop, imgWidth, imgHeight);
             
             pdf.save(`Malla_Curricular_${careerName.replace(/\s+/g, '_')}.pdf`);
@@ -1652,23 +1693,31 @@
             console.error('Error al generar PDF:', err);
             showToast('Ocurrió un error al generar el PDF.', 'error');
         } finally {
-            // Restaurar el zoom original
+            // 7. DEVOLVER TODO A LA NORMALIDAD
             currentZoom = originalZoom;
             applyZoom();
 
-            // Restaurar el modo de colores accesibles si estaba activado
             if (isAccessibleMode) {
                 document.body.classList.add('accessible-mode');
             }
 
-            // Restaurar las etiquetas de "NUEVO"
             newBadges.forEach(badge => {
                 badge.style.display = ''; 
             });
 
-            // Borrar el <defs> clonado para que el HTML vuelva a la normalidad
             if (clonedDefs) {
                 clonedDefs.remove();
+            }
+
+            // Restaurar columnas vacías si fueron ocultadas
+            if (columnsToShow < NUM_COLUMNS) {
+                wrapper.style.minWidth = originalMinWidth;
+                grids.forEach((g, i) => {
+                    g.style.gridTemplateColumns = originalGridsStyle[i];
+                });
+                hiddenCells.forEach(item => {
+                    item.el.style.display = item.display;
+                });
             }
         }
     }
