@@ -1175,9 +1175,15 @@
        if (countPI > 0) tooltipParts.push(`Proyecto Integrador: ${countPI}`);
 
        const tooltipSubjs = tooltipParts.join('\n');
-       const iconHtml = tooltipParts.length > 0 ? `<span title="${tooltipSubjs}" style="cursor:help; font-size:1.1em; color:var(--accent-color); margin-left: 6px;">ℹ️</span>` : '';
+       const infoIcon = document.getElementById('info-subjs');
        
-       // El número grande se queda limpio y centrado
+       if (tooltipParts.length > 0) {
+           infoIcon.style.display = 'inline-block';
+           infoIcon.title = tooltipSubjs; 
+       } else {
+           infoIcon.style.display = 'none';
+       }
+
        document.getElementById('stat-subjs').innerText = totalSubjects;
        
        document.getElementById('stat-creds').innerText = totalCredits.toFixed(1).replace('.0','');
