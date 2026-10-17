@@ -1562,6 +1562,7 @@
     }
 
     // --- NUEVA FUNCIÓN PARA EXPORTAR A PDF ---
+    // --- NUEVA FUNCIÓN PARA EXPORTAR A PDF ---
     async function exportToPDF() {
         const wrapper = document.getElementById('board-wrapper');
         if (!wrapper) return;
@@ -1584,6 +1585,16 @@
         newBadges.forEach(badge => {
             badge.style.display = 'none';
         });
+
+        // 4. TRUCO PARA LAS FLECHAS: Clonar <defs> temporalmente dentro del SVG de conexiones
+        const svgLayer = document.getElementById('connections-layer');
+        const defsOriginal = document.querySelector('svg defs');
+        let clonedDefs = null;
+        
+        if (svgLayer && defsOriginal) {
+            clonedDefs = defsOriginal.cloneNode(true);
+            svgLayer.appendChild(clonedDefs);
+        }
 
         // Pequeña pausa para asegurar que el navegador repinte el DOM con los cambios
         await new Promise(r => setTimeout(r, 300));
@@ -1635,8 +1646,14 @@
             newBadges.forEach(badge => {
                 badge.style.display = ''; 
             });
+
+            // Borrar el <defs> clonado para que el HTML vuelva a la normalidad
+            if (clonedDefs) {
+                clonedDefs.remove();
+            }
         }
     }
+    
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') { cancelGhostConnection(); stopEdgeScroll(); }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { if (e.shiftKey) { redo(); } else { undo(); } } 
