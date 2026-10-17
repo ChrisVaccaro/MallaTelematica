@@ -1631,10 +1631,13 @@
             badge.style.display = 'none';
         });
 
-        // CREAR ESTILO TEMPORAL PARA OCULTAR LOS ESCUDOS (::after) EN EL PDF
+        // CREAR ESTILO TEMPORAL PARA OCULTAR LOS ESCUDOS Y LOS RECUADROS VACÍOS EN EL PDF
         const tempStyle = document.createElement('style');
         tempStyle.id = 'temp-pdf-shield-fix';
-        tempStyle.innerHTML = `.level-header::after { display: none !important; }`;
+        tempStyle.innerHTML = `
+            .level-header::after { display: none !important; }
+            .grid-cell:empty { border: none !important; background: transparent !important; }
+        `;
         document.head.appendChild(tempStyle);
 
         // 6. LIMPIEZA DE SELECCIÓN: Quitar el pin y los colores de requisitos (rojo/verde)
