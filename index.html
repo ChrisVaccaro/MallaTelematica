@@ -1111,6 +1111,11 @@
        const cfg = state.config;
        
        let totalSubjects = 0;
+       // Nuevas variables para el desglose
+       let countRegulares = 0;
+       let countPracticas = 0;
+       let countPI = 0;
+
        let totalCredits = 0;
        let acd = 0, ape = 0, aa = 0;
        
@@ -1132,6 +1137,16 @@
               if(!visibleLevelIds.includes(s.level)) return;
               
               totalSubjects++;
+
+              // --- NUEVA LÓGICA DE DESGLOSE ---
+              if (s.tipoMateria === 'PROYECTO INTEGRADOR') {
+                  countPI++;
+              } else if (["PRÁCTICAS COMUNITARIAS", "PRÁCTICAS LABORALES", "PRÁCTICAS EMPRESARIALES"].includes(s.tipoMateria)) {
+                  countPracticas++;
+              } else {
+                  countRegulares++; // Incluye la "U de Integración Curricular" y el resto
+              }
+              
               const creds = calculateCredits(s);
               totalCredits += creds;
               
@@ -1153,7 +1168,10 @@
            });
        }
        
-       document.getElementById('stat-subjs').innerText = totalSubjects;
+       // --- INYECCIÓN DEL ÍCONO Y TOOLTIP ---
+       const tooltipSubjs = `Asignaturas: ${countRegulares}\nPrácticas: ${countPracticas}\nProyecto Integrador: ${countPI}`;
+       document.getElementById('stat-subjs').innerHTML = `${totalSubjects} <span title="${tooltipSubjs}" style="cursor:help; font-size:0.7em; color:var(--accent-color); margin-left: 6px;">ℹ️</span>`;
+       
        document.getElementById('stat-creds').innerText = totalCredits.toFixed(1).replace('.0','');
        
        const horasSemestres = totalCredits * cfg.divC * cfg.weeks;
