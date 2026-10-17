@@ -1625,11 +1625,17 @@
             document.body.classList.remove('accessible-mode');
         }
 
-        // 5. Ocultar todas las etiquetas de "NUEVO" de las materias
+        // 5. Ocultar todas las etiquetas de "NUEVO" de las materias y los escudos de los headers para el PDF
         const newBadges = document.querySelectorAll('.badge-new');
         newBadges.forEach(badge => {
             badge.style.display = 'none';
         });
+
+        // CREAR ESTILO TEMPORAL PARA OCULTAR LOS ESCUDOS (::after) EN EL PDF
+        const tempStyle = document.createElement('style');
+        tempStyle.id = 'temp-pdf-shield-fix';
+        tempStyle.innerHTML = `.level-header::after { display: none !important; }`;
+        document.head.appendChild(tempStyle);
 
         // 6. LIMPIEZA DE SELECCIÓN: Quitar el pin y los colores de requisitos (rojo/verde)
         pinnedSubjectId = null;
@@ -1753,6 +1759,10 @@
             newBadges.forEach(badge => {
                 badge.style.display = ''; 
             });
+
+            // REMOVER EL ESTILO TEMPORAL DE LOS ESCUDOS
+            const shieldFix = document.getElementById('temp-pdf-shield-fix');
+            if (shieldFix) shieldFix.remove();
 
             if (clonedDefs) {
                 clonedDefs.remove();
