@@ -262,7 +262,8 @@
     .level-content-grid { 
       flex: 1; display: grid; 
       grid-template-columns: repeat(8, 200px); 
-      gap: 14px; padding: 16px; background-color: #fafafa; align-items: center; border-radius: 0 8px 8px 0;
+      gap: 30px;
+      padding: 16px; background-color: #fafafa; align-items: center; border-radius: 0 8px 8px 0;
     }
 
     .grid-cell { 
@@ -1658,9 +1659,9 @@
 
         // Si hay columnas vacías al final, encogemos el tablero temporalmente
         if (columnsToShow < NUM_COLUMNS) {
-            // Calcular el nuevo ancho exacto (Header 220px + Padding 32px + (Cols * 200px) + (Gaps * 14px))
+            // Calcular el nuevo ancho exacto (Header 220px + Padding 32px + (Cols * 200px) + (Gaps * 30px))
             const gaps = columnsToShow > 0 ? columnsToShow - 1 : 0;
-            const newMinWidth = 220 + 32 + (columnsToShow * 200) + (gaps * 14);
+            const newMinWidth = 220 + 32 + (columnsToShow * 200) + (gaps * 30);
             wrapper.style.minWidth = `${newMinWidth}px`;
 
             grids.forEach(g => {
@@ -2715,24 +2716,43 @@
             pathData = `M ${x1} ${y1} C ${x1 + curveOffset} ${controlY1}, ${x2 + curveOffset} ${controlY2}, ${x2} ${y2}`;
           }
         } else {
-          // --- NUEVA REGLA: Línea recta perfecta si están en la misma columna y a 1 nivel exacto de distancia
-          if (subjFrom.col === subjTo.col && levelDistance === 1) {
+          // --- NUEVA REGLA: CORREQUISITOS (Líneas laterales) ---
+          if (isSameLevel) {
+            const isFromLeft = subjFrom.col < subjTo.col;
+            
+            // Puntos de salida y entrada laterales (mitad de altura de la tarjeta)
+            const startX = isFromLeft ? (fromPos.x + fromCard.offsetWidth) : fromPos.x;
+            const endX = isFromLeft ? toPos.x : (toPos.x + toCard.offsetWidth);
+            const yCenter = fromPos.y + (fromCard.offsetHeight / 2);
+
+            if (Math.abs(subjFrom.col - subjTo.col) === 1) {
+              // Si son contiguas: Línea recta horizontal perfecta
+              pathData = `M ${startX} ${yCenter} H ${endX}`;
+            } else {
+              // Si están separadas: Salir un poco, subir al techo de la fila, cruzar y bajar
+              const dirOffset = isFromLeft ? 15 : -15; // Tramo corto hacia afuera
+              const upOffset = (fromCard.offsetHeight / 2) + 15 + (index % 4) * 6; // Subir sobre la tarjeta
+              const routeY = yCenter - upOffset;
+              
+              pathData = `M ${startX} ${yCenter} H ${startX + dirOffset} V ${routeY} H ${endX - dirOffset} V ${yCenter} H ${endX}`;
+            }
+            
+          } 
+          // --- NUEVA REGLA: PRERREQUISITOS VERTICALES CONTIGUOS ---
+          else if (subjFrom.col === subjTo.col && levelDistance === 1) {
             const y1 = fromPos.y + fromCard.offsetHeight; 
             const y2 = toPos.y; 
             pathData = `M ${x1} ${y1} V ${y2}`; // Línea perfectamente vertical
-          } else {
-            // Lógica para todas las demás conexiones (diagonales, mismo nivel o saltos de más de 1 nivel)
+            
+          } 
+          // --- PRERREQUISITOS NORMALES CON SALTO O DIAGONAL ---
+          else {
             const xOffset1 = (index % 5) * 10 - 20; 
             const xOffset2 = ((index + 2) % 5) * 10 - 20; 
             x1 += xOffset1; 
             x2 += xOffset2;
             
-            if (isSameLevel) {
-              const y1 = fromPos.y; 
-              const y2 = toPos.y; 
-              const upOffset = 15 + (index % 4) * 6;
-              pathData = `M ${x1} ${y1} V ${y1 - upOffset} H ${x2} V ${y2}`;
-            } else if (levelDistance === 1) {
+            if (levelDistance === 1) {
               const y1 = fromPos.y + fromCard.offsetHeight; 
               const y2 = toPos.y; 
               const midY = y1 + (y2 - y1) / 2; 
