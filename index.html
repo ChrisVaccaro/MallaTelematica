@@ -1561,7 +1561,7 @@
       document.getElementById('btn-undo').disabled = (historyStack.length === 0); document.getElementById('btn-redo').disabled = (redoStack.length === 0);
     }
 
-    // --- NUEVA FUNCIÓN PARA EXPORTAR A PDF (A4 + Márgenes + Recorte Automático) ---
+    // --- NUEVA FUNCIÓN PARA EXPORTAR A PDF (A4 + Márgenes + Recorte Automático + Limpieza de Selección) ---
     async function exportToPDF() {
         const wrapper = document.getElementById('board-wrapper');
         if (!wrapper) return;
@@ -1585,7 +1585,12 @@
             badge.style.display = 'none';
         });
 
-        // 4. TRUCO PARA LAS FLECHAS: Clonar <defs> temporalmente dentro del SVG de conexiones
+        // 4. LIMPIEZA DE SELECCIÓN: Quitar el pin y los colores de requisitos (rojo/verde)
+        pinnedSubjectId = null;
+        clearHighlights();
+        document.querySelectorAll('.subject-card').forEach(c => c.classList.remove('pinned'));
+
+        // 5. TRUCO PARA LAS FLECHAS: Clonar <defs> temporalmente dentro del SVG de conexiones
         const svgLayer = document.getElementById('connections-layer');
         const defsOriginal = document.querySelector('svg defs');
         let clonedDefs = null;
@@ -1595,7 +1600,7 @@
             svgLayer.appendChild(clonedDefs);
         }
 
-        // 5. RECORTE AUTOMÁTICO: Detectar la última columna ocupada
+        // 6. RECORTE AUTOMÁTICO: Detectar la última columna ocupada
         let maxCol = -1;
         const cfg = state.config || initialData.config;
         const visibleLevelIds = state.levels.slice(0, cfg.semesters).map(l => l.id);
@@ -1668,7 +1673,7 @@
             pdf.setTextColor(15, 23, 42);
             pdf.text(title, pdfWidth / 2, 40, { align: 'center' });
 
-            // 6. CÁLCULO DE MÁRGENES Y ESCALA PARA ENCAJAR EN A4
+            // 7. CÁLCULO DE MÁRGENES Y ESCALA PARA ENCAJAR EN A4
             const marginX = 30; // Margen a los lados
             const marginYTop = 65; // Margen superior (debajo del título)
             const marginYBottom = 30; // Margen inferior
@@ -1693,7 +1698,7 @@
             console.error('Error al generar PDF:', err);
             showToast('Ocurrió un error al generar el PDF.', 'error');
         } finally {
-            // 7. DEVOLVER TODO A LA NORMALIDAD
+            // 8. DEVOLVER TODO A LA NORMALIDAD
             currentZoom = originalZoom;
             applyZoom();
 
