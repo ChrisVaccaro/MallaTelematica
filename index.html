@@ -262,7 +262,7 @@
     .level-content-grid { 
       flex: 1; display: grid; 
       grid-template-columns: repeat(8, 200px); 
-      gap: 30px;
+      gap: 50px;
       padding: 16px; background-color: #fafafa; align-items: center; border-radius: 0 8px 8px 0;
     }
 
@@ -1659,9 +1659,9 @@
 
         // Si hay columnas vacías al final, encogemos el tablero temporalmente
         if (columnsToShow < NUM_COLUMNS) {
-            // Calcular el nuevo ancho exacto (Header 220px + Padding 32px + (Cols * 200px) + (Gaps * 30px))
+            // Calcular el nuevo ancho exacto (Header 220px + Padding 32px + (Cols * 200px) + (Gaps * 50px))
             const gaps = columnsToShow > 0 ? columnsToShow - 1 : 0;
-            const newMinWidth = 220 + 32 + (columnsToShow * 200) + (gaps * 30);
+            const newMinWidth = 220 + 32 + (columnsToShow * 200) + (gaps * 50);
             wrapper.style.minWidth = `${newMinWidth}px`;
 
             grids.forEach(g => {
