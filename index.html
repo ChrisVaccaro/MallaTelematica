@@ -2708,9 +2708,104 @@
           ghostSvg.style.height = '100%'; 
       }
 
+      // --- 1. ESCANEO ESPACIAL DEL TABLERO Y ZONAS SEGURAS ---
+      const cfg = state.config || initialData.config;
+      const visibleLevels = state.levels.slice(0, cfg.semesters);
+      const occupied = {};
+      let maxCol = 0;
+
+      visibleLevels.forEach(l => occupied[l.id] = {});
+      if (state.subjects && Array.isArray(state.subjects)) {
+          state.subjects.forEach(s => {
+              if (occupied[s.level] !== undefined) {
+                  occupied[s.level][s.col] = true;
+                  if (s.col > maxCol) maxCol = s.col;
+              }
+          });
+      }
+
+      // --- 2. GESTORES DE CARRILES (Lane Managers) ---
+      const hTracks = {}; // Pasillos horizontales
+      const vTracks = {}; // Pasillos verticales
+
+      // Carriles horizontales: 0, 8, 16, 24, 32
+      function getHTrack(key) {
+          if (hTracks[key] === undefined) hTracks[key] = 0;
+          const track = hTracks[key] % 5;
+          hTracks[key]++;
+          return track * 8; 
+      }
+
+      // Carriles verticales en el gap de 50px: 9, 17, 25, 33, 41
+      function getVTrack(colIdx) {
+          if (vTracks[colIdx] === undefined) vTracks[colIdx] = 0;
+          const track = vTracks[colIdx] % 5;
+          vTracks[colIdx]++;
+          return 9 + (track * 8); 
+      }
+
+      // --- 3. GESTOR DE PUERTOS (Port Manager) ---
+      // Calcula los puertos X exactos (50, 75, 100, 125, 150) asegurando siempre el centro
+      function assignPorts(cardId, isOutgoing) {
+          const sourceCard = state.subjects.find(s => s.id === cardId);
+          if (!sourceCard) return {};
+          
+          // Filtramos solo prerrequisitos que involucren a esta materia (ignoramos correquisitos para los puertos sup/inf)
+          const related = state.connections.filter(c => {
+              const sFrom = state.subjects.find(s => s.id === c.from);
+              const sTo = state.subjects.find(s => s.id === c.to);
+              return sFrom && sTo && sFrom.level !== sTo.level && (isOutgoing ? c.from === cardId : c.to === cardId);
+          }).map(c => {
+              const targetCard = state.subjects.find(s => s.id === (isOutgoing ? c.to : c.from));
+              return { connId: `${c.from}-${c.to}`, targetCol: targetCard.col };
+          });
+
+          // Ordenar conexiones por la columna de destino de izquierda a derecha
+          related.sort((a, b) => a.targetCol - b.targetCol);
+          
+          const count = related.length;
+          let assigned = [];
+          const sourceCol = sourceCard.col;
+
+          if (count === 1) assigned = [100];
+          else if (count === 2) {
+              const avgTarget = (related[0].targetCol + related[1].targetCol) / 2;
+              if (avgTarget < sourceCol) assigned = [75, 100]; // Inclinado a la izquierda
+              else if (avgTarget > sourceCol) assigned = [100, 125]; // Inclinado a la derecha
+              else assigned = [75, 100]; // Centro equitativo
+          }
+          else if (count === 3) assigned = [75, 100, 125];
+          else if (count === 4) {
+              const avgTarget = related.reduce((sum, r) => sum + r.targetCol, 0) / 4;
+              if (avgTarget < sourceCol) assigned = [50, 75, 100, 125];
+              else assigned = [75, 100, 125, 150];
+          }
+          else if (count === 5) assigned = [50, 75, 100, 125, 150];
+          else {
+              assigned = related.map((_, i) => i < 5 ? [50, 75, 100, 125, 150][i] : 100); // Excedente usa el centro
+          }
+
+          const map = {};
+          related.forEach((r, i) => map[r.connId] = assigned[i] || 100);
+          return map;
+      }
+
+      // Precalcular los puertos de salida y entrada para todas las materias
+      const outgoingPorts = {};
+      const incomingPorts = {};
+      state.subjects.forEach(s => {
+          outgoingPorts[s.id] = assignPorts(s.id, true);
+          incomingPorts[s.id] = assignPorts(s.id, false);
+      });
+
+      // --- 4. DIBUJO DE CONEXIONES ---
       state.connections.forEach((conn, index) => {
-        const fromCard = document.getElementById(`card-${conn.from}`); const toCard = document.getElementById(`card-${conn.to}`); if (!fromCard || !toCard) return;
-        const subjFrom = state.subjects.find(s => s.id === conn.from); const subjTo = state.subjects.find(s => s.id === conn.to);
+        const fromCard = document.getElementById(`card-${conn.from}`); 
+        const toCard = document.getElementById(`card-${conn.to}`); 
+        if (!fromCard || !toCard) return;
+        
+        const subjFrom = state.subjects.find(s => s.id === conn.from); 
+        const subjTo = state.subjects.find(s => s.id === conn.to);
         
         const levelFromIdx = state.levels.findIndex(l => l.id === subjFrom.level); 
         const levelToIdx = state.levels.findIndex(l => l.id === subjTo.level);
@@ -2719,83 +2814,118 @@
 
         const fromPos = getRelativePos(fromCard, wrapperEl);
         const toPos = getRelativePos(toCard, wrapperEl);
-
-        let x1 = fromPos.x + (fromCard.offsetWidth / 2); 
-        let x2 = toPos.x + (toCard.offsetWidth / 2); 
+        
+        const connId = `${conn.from}-${conn.to}`;
         let pathData = "";
 
         if (lineType === 'curved') {
-          if (isSameLevel) {
-            const y1 = fromPos.y; 
-            const y2 = toPos.y; 
-            const distance = Math.abs(x2 - x1); 
-            const arcHeight = Math.min(Math.max(distance * 0.35, 25), 50);
-            pathData = `M ${x1} ${y1} C ${x1} ${y1 - arcHeight}, ${x2} ${y2 - arcHeight}, ${x2} ${y2}`;
-          } else {
-            const y1 = fromPos.y + fromCard.offsetHeight; 
-            const y2 = toPos.y; 
-            const offsetDirection = (index % 2 === 0) ? 1 : -1; 
-            const curveOffset = (levelDistance > 1) ? (levelDistance * 18 * offsetDirection) : 0;
-            const controlY1 = y1 + (Math.abs(y2 - y1) * 0.45); 
-            const controlY2 = y2 - (Math.abs(y2 - y1) * 0.45);
-            pathData = `M ${x1} ${y1} C ${x1 + curveOffset} ${controlY1}, ${x2 + curveOffset} ${controlY2}, ${x2} ${y2}`;
-          }
+             // Lógica de curvas se mantiene (solo si usas el toggle curvo)
+             let cx1 = fromPos.x + (fromCard.offsetWidth / 2);
+             let cx2 = toPos.x + (toCard.offsetWidth / 2);
+             if (isSameLevel) {
+               const y1 = fromPos.y; const y2 = toPos.y; 
+               const distance = Math.abs(cx2 - cx1); 
+               const arcHeight = Math.min(Math.max(distance * 0.35, 25), 50);
+               pathData = `M ${cx1} ${y1} C ${cx1} ${y1 - arcHeight}, ${cx2} ${y2 - arcHeight}, ${cx2} ${y2}`;
+             } else {
+               const y1 = fromPos.y + fromCard.offsetHeight; const y2 = toPos.y; 
+               const offsetDirection = (index % 2 === 0) ? 1 : -1; 
+               const curveOffset = (levelDistance > 1) ? (levelDistance * 18 * offsetDirection) : 0;
+               const controlY1 = y1 + (Math.abs(y2 - y1) * 0.45); const controlY2 = y2 - (Math.abs(y2 - y1) * 0.45);
+               pathData = `M ${cx1} ${y1} C ${cx1 + curveOffset} ${controlY1}, ${cx2 + curveOffset} ${controlY2}, ${cx2} ${y2}`;
+             }
         } else {
-          // --- NUEVA REGLA: CORREQUISITOS (Líneas laterales) ---
+          // --- ENRUTAMIENTO ORTOGONAL DE ALTA PRECISIÓN ---
+          
+          // Detección de huecos "fantasma" vacíos
+          let canCrossHorizontal = false;
+          if (isSameLevel && Math.abs(subjFrom.col - subjTo.col) > 1) {
+              const minCol = Math.min(subjFrom.col, subjTo.col);
+              const maxColIter = Math.max(subjFrom.col, subjTo.col);
+              let empty = true;
+              for (let c = minCol + 1; c < maxColIter; c++) {
+                  if (occupied[subjFrom.level][c]) { empty = false; break; }
+              }
+              canCrossHorizontal = empty;
+          }
+
+          let canCrossVertical = false;
+          if (subjFrom.col === subjTo.col && levelDistance > 1) {
+              const minLvl = Math.min(levelFromIdx, levelToIdx);
+              const maxLvl = Math.max(levelFromIdx, levelToIdx);
+              let empty = true;
+              for (let l = minLvl + 1; l < maxLvl; l++) {
+                  const lvlId = state.levels[l].id;
+                  if (occupied[lvlId] && occupied[lvlId][subjFrom.col]) { empty = false; break; }
+              }
+              canCrossVertical = empty;
+          }
+
+          // REGLA 1: CORREQUISITOS (Laterales)
           if (isSameLevel) {
             const isFromLeft = subjFrom.col < subjTo.col;
-            
-            // Puntos de salida y entrada laterales (mitad de altura de la tarjeta)
             const startX = isFromLeft ? (fromPos.x + fromCard.offsetWidth) : fromPos.x;
             const endX = isFromLeft ? toPos.x : (toPos.x + toCard.offsetWidth);
             const yCenter = fromPos.y + (fromCard.offsetHeight / 2);
 
-            if (Math.abs(subjFrom.col - subjTo.col) === 1) {
-              // Si son contiguas: Línea recta horizontal perfecta
-              pathData = `M ${startX} ${yCenter} H ${endX}`;
+            if (Math.abs(subjFrom.col - subjTo.col) === 1 || canCrossHorizontal) {
+              pathData = `M ${startX} ${yCenter} H ${endX}`; // Línea recta a través de hueco contiguo
             } else {
-              // Si están separadas: Salir un poco, subir al techo de la fila, cruzar y bajar
-              const dirOffset = isFromLeft ? 15 : -15; // Tramo corto hacia afuera
-              const upOffset = (fromCard.offsetHeight / 2) + 15 + (index % 4) * 6; // Subir sobre la tarjeta
-              const routeY = yCenter - upOffset;
+              // Esquiva obstáculos subiendo al pasillo
+              const dirOffset = isFromLeft ? 15 : -15;
+              const hTrack = getHTrack('coreq_' + levelFromIdx);
+              // Excepción Nivel 1: Sube un poco por encima, los demás niveles usan el gap regular
+              const roofOffset = (levelFromIdx === 0) ? (10 + hTrack) : (24 + hTrack); 
+              const routeY = fromPos.y - roofOffset;
               
               pathData = `M ${startX} ${yCenter} H ${startX + dirOffset} V ${routeY} H ${endX - dirOffset} V ${yCenter} H ${endX}`;
             }
-            
           } 
-          // --- NUEVA REGLA: PRERREQUISITOS VERTICALES CONTIGUOS ---
-          else if (subjFrom.col === subjTo.col && levelDistance === 1) {
+          // REGLA 2: PRERREQUISITOS (De arriba hacia abajo)
+          else {
+            // Aplicamos los puertos precalculados!
+            const portXOut = outgoingPorts[conn.from][connId] || 100;
+            const portXIn = incomingPorts[conn.to][connId] || 100;
+            const x1 = fromPos.x + portXOut;
+            const x2 = toPos.x + portXIn;
+            
             const y1 = fromPos.y + fromCard.offsetHeight; 
             const y2 = toPos.y; 
-            pathData = `M ${x1} ${y1} V ${y2}`; // Línea perfectamente vertical
-            
-          } 
-          // --- PRERREQUISITOS NORMALES CON SALTO O DIAGONAL ---
-          else {
-            const xOffset1 = (index % 5) * 10 - 20; 
-            const xOffset2 = ((index + 2) % 5) * 10 - 20; 
-            x1 += xOffset1; 
-            x2 += xOffset2;
-            
-            if (levelDistance === 1) {
-              const y1 = fromPos.y + fromCard.offsetHeight; 
-              const y2 = toPos.y; 
-              const midY = y1 + (y2 - y1) / 2; 
-              const offset = (index % 7) * 5 - 15;
-              pathData = `M ${x1} ${y1} V ${midY + offset} H ${x2} V ${y2}`;
+
+            if (subjFrom.col === subjTo.col && (levelDistance === 1 || canCrossVertical)) {
+              // Directo verticalmente
+              pathData = `M ${x1} ${y1} V ${y2}`;
             } else {
-              const y1 = fromPos.y + fromCard.offsetHeight; 
-              const y2 = toPos.y; 
-              const y_pasillo1 = y1 + 15 + (index % 4) * 5;
-              const laneX = toPos.x - 7 + (index % 3) * 4 - 4; 
-              const y_pasillo2 = y2 - 15 - (index % 4) * 5;
-              pathData = `M ${x1} ${y1} V ${y_pasillo1} H ${laneX} V ${y_pasillo2} H ${x2} V ${y2}`;
+              // Diagonal con conciencia de carril
+              let vCol = Math.min(subjFrom.col, subjTo.col);
+              if (vCol >= maxCol && maxCol > 0) vCol = maxCol - 1; // Respetar borde derecho
+              if (vCol < 0) vCol = 0; // Excepción izquierda absoluta
+              
+              const xRef = 236 + ((vCol + 1) * 200) + (vCol * 50); 
+              const laneX = xRef + getVTrack(vCol); 
+
+              if (levelDistance === 1) {
+                // Diagonal corta: Baja al gap horizontal y viaja directo
+                const hTrack = getHTrack(levelFromIdx + '_' + levelToIdx); 
+                const midY = y1 + 16 + hTrack; 
+                pathData = `M ${x1} ${y1} V ${midY} H ${x2} V ${y2}`;
+              } else {
+                // Diagonal larga (Escalera): Baja al gap superior, viaja horizontal a la columna, baja, viaja horizontal al destino
+                const hTrackTop = getHTrack(levelFromIdx + '_out');
+                const y_pasillo1 = y1 + 16 + hTrackTop; 
+                
+                const hTrackBot = getHTrack(levelToIdx + '_in');
+                const y_pasillo2 = y2 - 16 - hTrackBot; 
+                
+                pathData = `M ${x1} ${y1} V ${y_pasillo1} H ${laneX} V ${y_pasillo2} H ${x2} V ${y2}`;
+              }
             }
           }
         }
         
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', pathData); path.setAttribute('class', `connection drawn ${isSameLevel ? 'corequisite' : ''}`); 
+        path.setAttribute('d', pathData); 
+        path.setAttribute('class', `connection drawn ${isSameLevel ? 'corequisite' : ''}`); 
         path.style.strokeLinejoin = "round"; path.style.strokeLinecap = "round"; path.dataset.from = conn.from; path.dataset.to = conn.to;
         path.setAttribute('marker-end', isSameLevel ? 'url(#arrowhead-coreq)' : 'url(#arrowhead)');
         
@@ -2805,6 +2935,7 @@
         path.ondblclick = (e) => { e.stopPropagation(); document.getElementById('conn-delete-tooltip').classList.remove('visible'); openDeleteConnModal(conn.from, conn.to, subjFrom.name, subjTo.name); };
         svg.appendChild(path);
       });
+      
       if (pinnedSubjectId) { highlightConnections(pinnedSubjectId); }
     }
 
