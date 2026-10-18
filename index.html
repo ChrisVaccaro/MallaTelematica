@@ -2738,8 +2738,8 @@
             }
         });
 
-        // --- 2. PRE-CÁLCULO Y REGLA 1 (Prioridad Recta) ---
-        const connRoutes = state.connections.map(c => {
+        // --- 2. PRE-CÁLCULO Y REGLAS BASE ---
+        let connRoutes = state.connections.map(c => {
             const sFrom = state.subjects.find(s => s.id === c.from);
             const sTo = state.subjects.find(s => s.id === c.to);
             if(!sFrom || !sTo) return null;
@@ -2775,7 +2775,10 @@
             };
         }).filter(Boolean);
 
-        // --- 3. GESTOR DE PUERTOS DE LLEGADA (Excepción de Sombra + Efecto H) ---
+        // DETALLE 3: ORDEN POR CAÍDA VERTICAL (Previene cruces en los pasillos)
+        connRoutes.sort((a, b) => b.lvlFromIdx - a.lvlFromIdx);
+
+        // --- 3. GESTOR DE PUERTOS DE LLEGADA (Sombra Inteligente) ---
         function getIncomingPort(route, laneX) {
             if (route.isStraight) return 100; 
 
@@ -2793,7 +2796,6 @@
                         const aboveHasOut = connRoutes.some(r => r.from === subjAbove.id);
                         const aboveGoesToMyDest = connRoutes.some(r => r.from === subjAbove.id && r.to === route.to);
                         
-                        // EXCEPCIÓN: Si la sombra la genera una flecha que va a mi destino, ¡me fusiono con ella!
                         if (aboveHasOut && !aboveGoesToMyDest) {
                             shadowBlocked = true;
                         }
@@ -2812,19 +2814,22 @@
             return 100; 
         }
 
-        // --- 4. GESTORES DE CARRILES (Envergadura Horizontal y Reserva Vertical) ---
+        // --- 4. GESTORES DE CARRILES (Envergadura Horizontal y Autopistas Secundarias) ---
         const hSegments = []; 
         const vSegments = []; 
         const ghostCentersOccupied = {}; 
+        const coreqOccupied = {}; // Para gestionar correquisitos múltiples en el mismo nivel
 
         function getHTrack(levelId, startX, endX, isCoreq, sourceId) {
-            if (isCoreq) return 32; 
-
             const priorities = [8, 24, 0, 16]; 
             const minX = Math.min(startX, endX);
             const maxX = Math.max(startX, endX);
 
-            // CÁLCULO DE ENVERGADURA FAMILIAR
+            // ¿Ya reservamos un carril para toda esta familia?
+            const familySegs = hSegments.filter(seg => seg.level === levelId && seg.sourceId === sourceId);
+            if (familySegs.length > 0) return familySegs[0].track;
+
+            // DETALLE 1: CÁLCULO Y BLOQUEO TOTAL DE ENVERGADURA FAMILIAR
             let familySpanMinX = minX;
             let familySpanMaxX = maxX;
             const familyRoutes = connRoutes.filter(r => r.from === sourceId && r.lvlDistance > 0 && !r.isStraight);
@@ -2833,35 +2838,29 @@
                 const tCard = document.getElementById(`card-${fr.to}`);
                 if (tCard) {
                     const tX = getRelativePos(tCard, wrapperEl).x;
-                    // Ampliamos el margen para cubrir todo el bloque que podría usar esta familia
-                    familySpanMinX = Math.min(familySpanMinX, tX - 50);
-                    familySpanMaxX = Math.max(familySpanMaxX, tX + 250);
+                    familySpanMinX = Math.min(familySpanMinX, tX - 10);
+                    familySpanMaxX = Math.max(familySpanMaxX, tX + 210);
                 }
             });
 
-            // 1. Intentar reservar una pista para TODO el bloque familiar
             for (let p of priorities) {
                 const collision = hSegments.find(seg => 
                     seg.level === levelId && 
                     seg.track === p && 
-                    seg.sourceId !== sourceId && 
                     !(familySpanMaxX <= seg.minX || familySpanMinX >= seg.maxX)
                 );
                 if (!collision) {
-                    hSegments.push({ level: levelId, track: p, minX, maxX, sourceId });
+                    hSegments.push({ level: levelId, track: p, minX: familySpanMinX, maxX: familySpanMaxX, sourceId });
                     return p;
                 }
             }
 
-            // 2. Si es imposible el bloque entero, fallback al tramo individual
             for (let p of priorities) {
                 const collision = hSegments.find(seg => 
                     seg.level === levelId && 
                     seg.track === p && 
-                    seg.sourceId !== sourceId && 
                     !(maxX <= seg.minX || minX >= seg.maxX)
                 );
-
                 if (!collision) {
                     hSegments.push({ level: levelId, track: p, minX: minX, maxX: maxX, sourceId });
                     return p;
@@ -2871,7 +2870,7 @@
         }
 
         function getVTrack(colIdx, startY, endY, travelDirection, sourceId) {
-            // RESERVA DE BORDES: Prerrequisitos solo usan el centro (17, 25, 33). El 9 y 41 son intocables.
+            // Prerrequisitos limitados al centro, bordes 9 y 41 son exclusivos
             let priorities = (travelDirection === 'right') ? [17, 25, 33] : [33, 25, 17];
             const minY = Math.min(startY, endY);
             const maxY = Math.max(startY, endY);
@@ -2952,10 +2951,22 @@
                 if (Math.abs(route.sFrom.col - route.sTo.col) === 1 || canCrossHorizontal) {
                     pathData = `M ${startX} ${yCenter} H ${endX}`; 
                 } else {
-                    // CORREQUISITOS: Uso exclusivo de los píxeles 9 y 41 absolutos
                     const dirOffset = isFromLeft ? 9 : -9;
-                    const routeY = levelTopY[route.sFrom.level] || (fromPos.y - 12);
                     
+                    // DETALLE 2: GESTIÓN DE AUTOPISTAS SECUNDARIAS PARA CORREQUISITOS
+                    if (!coreqOccupied[route.sFrom.level]) coreqOccupied[route.sFrom.level] = [];
+                    let cTrackOffset = 0;
+                    const minCol = Math.min(route.sFrom.col, route.sTo.col);
+                    const maxColIter = Math.max(route.sFrom.col, route.sTo.col);
+                    
+                    const hasCollision = coreqOccupied[route.sFrom.level].some(c => 
+                        !(maxColIter <= c.min || minCol >= c.max) && c.sourceId !== route.from
+                    );
+                    
+                    if (hasCollision) cTrackOffset = 16; 
+                    coreqOccupied[route.sFrom.level].push({ min: minCol, max: maxColIter, sourceId: route.from });
+                    
+                    const routeY = (levelTopY[route.sFrom.level] || (fromPos.y - 12)) - cTrackOffset;
                     pathData = `M ${startX} ${yCenter} H ${startX + dirOffset} V ${routeY} H ${endX - dirOffset} V ${yCenter} H ${endX}`;
                 }
             } else {
@@ -2980,7 +2991,6 @@
                         pathData = `M ${x1} ${y1} V ${y_pasillo1} H ${x2} V ${y2}`;
                     } else {
                         const xRef = 236 + ((route.vColRoute + 1) * 200) + (route.vColRoute * 50); 
-                        
                         const travelDir = (route.sFrom.col <= route.vColRoute) ? 'right' : 'left';
                         const trackOffset = getVTrack(route.vColRoute, baseYOut, baseYIn, travelDir, route.from);
                         const laneX = xRef + trackOffset; 
