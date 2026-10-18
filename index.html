@@ -2775,10 +2775,10 @@
             };
         }).filter(Boolean);
 
-        // DETALLE 3: ORDEN POR CAÍDA VERTICAL (Previene cruces en los pasillos)
+        // ORDEN POR CAÍDA VERTICAL
         connRoutes.sort((a, b) => b.lvlFromIdx - a.lvlFromIdx);
 
-        // --- 3. GESTOR DE PUERTOS DE LLEGADA (Sombra Inteligente) ---
+        // --- 3. GESTOR DE PUERTOS DE LLEGADA ---
         function getIncomingPort(route, laneX) {
             if (route.isStraight) return 100; 
 
@@ -2814,34 +2814,47 @@
             return 100; 
         }
 
-        // --- 4. GESTORES DE CARRILES (Envergadura Horizontal y Autopistas Secundarias) ---
+        // --- 4. GESTORES DE CARRILES HORIZONTALES ---
         const hSegments = []; 
         const vSegments = []; 
         const ghostCentersOccupied = {}; 
-        const coreqOccupied = {}; // Para gestionar correquisitos múltiples en el mismo nivel
+        const coreqOccupied = {}; 
 
         function getHTrack(levelId, startX, endX, isCoreq, sourceId) {
+            // CORRECCIÓN 2: Los correquisitos ahora operan en la misma matriz matemática (Tracks 32 y 40)
+            if (isCoreq) return 32; 
+
             const priorities = [8, 24, 0, 16]; 
             const minX = Math.min(startX, endX);
             const maxX = Math.max(startX, endX);
 
-            // ¿Ya reservamos un carril para toda esta familia?
             const familySegs = hSegments.filter(seg => seg.level === levelId && seg.sourceId === sourceId);
             if (familySegs.length > 0) return familySegs[0].track;
 
-            // DETALLE 1: CÁLCULO Y BLOQUEO TOTAL DE ENVERGADURA FAMILIAR
+            // CORRECCIÓN 1: Envergadura estricta basada solo en los puertos, sin colchones artificiales (+210)
             let familySpanMinX = minX;
             let familySpanMaxX = maxX;
             const familyRoutes = connRoutes.filter(r => r.from === sourceId && r.lvlDistance > 0 && !r.isStraight);
             
             familyRoutes.forEach(fr => {
+                const fCard = document.getElementById(`card-${fr.from}`);
                 const tCard = document.getElementById(`card-${fr.to}`);
-                if (tCard) {
-                    const tX = getRelativePos(tCard, wrapperEl).x;
-                    familySpanMinX = Math.min(familySpanMinX, tX - 10);
-                    familySpanMaxX = Math.max(familySpanMaxX, tX + 210);
+                if (fCard && tCard) {
+                    const startPortX = getRelativePos(fCard, wrapperEl).x + 100;
+                    let endPortX;
+                    if (fr.lvlDistance === 1) {
+                         endPortX = getRelativePos(tCard, wrapperEl).x + 100; 
+                    } else {
+                         endPortX = 236 + ((fr.vColRoute + 1) * 200) + (fr.vColRoute * 50); 
+                    }
+                    familySpanMinX = Math.min(familySpanMinX, startPortX, endPortX);
+                    familySpanMaxX = Math.max(familySpanMaxX, startPortX, endPortX);
                 }
             });
+
+            // Ajuste de margen de seguridad a solo 5px (Evita falsos choques)
+            familySpanMinX -= 5;
+            familySpanMaxX += 5;
 
             for (let p of priorities) {
                 const collision = hSegments.find(seg => 
@@ -2870,7 +2883,6 @@
         }
 
         function getVTrack(colIdx, startY, endY, travelDirection, sourceId) {
-            // Prerrequisitos limitados al centro, bordes 9 y 41 son exclusivos
             let priorities = (travelDirection === 'right') ? [17, 25, 33] : [33, 25, 17];
             const minY = Math.min(startY, endY);
             const maxY = Math.max(startY, endY);
@@ -2953,9 +2965,13 @@
                 } else {
                     const dirOffset = isFromLeft ? 9 : -9;
                     
-                    // DETALLE 2: GESTIÓN DE AUTOPISTAS SECUNDARIAS PARA CORREQUISITOS
+                    // CORRECCIÓN 2.1: Los correquisitos se anclan matemáticamente al techo unificado
+                    const levelAboveId = route.lvlFromIdx > 0 ? state.levels[route.lvlFromIdx - 1].id : null;
+                    const gapBaseY = levelAboveId ? levelBoundsY[levelAboveId] : (levelTopY[route.sFrom.level] - 50);
+                    
                     if (!coreqOccupied[route.sFrom.level]) coreqOccupied[route.sFrom.level] = [];
-                    let cTrackOffset = 0;
+                    let cTrackOffset = 32; // Carril maestro de correquisitos
+                    
                     const minCol = Math.min(route.sFrom.col, route.sTo.col);
                     const maxColIter = Math.max(route.sFrom.col, route.sTo.col);
                     
@@ -2963,10 +2979,10 @@
                         !(maxColIter <= c.min || minCol >= c.max) && c.sourceId !== route.from
                     );
                     
-                    if (hasCollision) cTrackOffset = 16; 
+                    if (hasCollision) cTrackOffset = 40; // Carril secundario en colisiones
                     coreqOccupied[route.sFrom.level].push({ min: minCol, max: maxColIter, sourceId: route.from });
                     
-                    const routeY = (levelTopY[route.sFrom.level] || (fromPos.y - 12)) - cTrackOffset;
+                    const routeY = gapBaseY + cTrackOffset;
                     pathData = `M ${startX} ${yCenter} H ${startX + dirOffset} V ${routeY} H ${endX - dirOffset} V ${yCenter} H ${endX}`;
                 }
             } else {
