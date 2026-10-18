@@ -2714,6 +2714,7 @@
         // --- 1. MAPA ESPACIAL Y ANCLAJE ABSOLUTO ---
         const occupied = {}; 
         const levelBoundsY = {}; 
+        const levelTopY = {}; // Para el anclaje perfecto de los correquisitos
         let maxCol = 0;
 
         visibleLevels.forEach(l => occupied[l.id] = {});
@@ -2723,7 +2724,6 @@
                 occupied[s.level][s.col] = true;
                 if (s.col > maxCol) maxCol = s.col;
                 
-                // Anclaje al marco para que no floten
                 if (!levelBoundsY[s.level]) {
                     const cardEl = document.getElementById(`card-${s.id}`);
                     if (cardEl) {
@@ -2731,6 +2731,7 @@
                         if (rowEl) {
                             const rowPos = getRelativePos(rowEl, wrapperEl);
                             levelBoundsY[s.level] = rowPos.y + rowEl.offsetHeight; 
+                            levelTopY[s.level] = rowPos.y; // Techo exacto de la fila
                         }
                     }
                 }
@@ -2750,7 +2751,7 @@
             let isStraight = false;
             let vColRoute = -1;
 
-            if (sFrom.col === sTo.col) {
+            if (sFrom.col === sTo.col && lvlDistance > 0) {
                 let empty = true;
                 const minLvl = Math.min(lvlFromIdx, lvlToIdx);
                 const maxLvl = Math.max(lvlFromIdx, lvlToIdx);
@@ -2759,10 +2760,10 @@
                         empty = false; break;
                     }
                 }
-                if (empty) isStraight = true; // REGLA 1
+                if (empty) isStraight = true; // El Rey de la Recta
             }
 
-            if (!isStraight) {
+            if (!isStraight && lvlDistance > 0) {
                 vColRoute = Math.min(sFrom.col, sTo.col);
                 if (vColRoute >= maxCol && maxCol > 0) vColRoute = maxCol - 1;
                 if (vColRoute < 0) vColRoute = 0;
@@ -2774,49 +2775,44 @@
             };
         }).filter(Boolean);
 
-        // --- 3. REGLA 4: GESTOR DE PUERTOS DE LLEGADA ---
-        function getIncomingPort(route) {
-            let port = 100; // Por defecto entran al centro
+        // --- 3. REGLA 4: GESTOR DE PUERTOS DE LLEGADA (Detector de Efecto H) ---
+        function getIncomingPort(route, laneX) {
+            if (route.isStraight) return 100; // Rectas absolutas no se mueven
 
-            if (route.lvlToIdx > 0) {
-                const levelAboveId = state.levels[route.lvlToIdx - 1].id;
-                const subjAbove = state.subjects.find(s => s.level === levelAboveId && s.col === route.sTo.col);
+            // Detectamos si se está por formar una "H" óptica
+            const destHasStraightIn = connRoutes.some(r => r.to === route.to && r.isStraight);
+            const sourceHasStraightOut = connRoutes.some(r => r.from === route.from && r.isStraight);
 
-                // Si hay materia arriba y NO es quien envía esta flecha
-                if (subjAbove && subjAbove.id !== route.from) {
-                    // ¿Esa materia de arriba tiene alguna flecha saliente que se desvíe (diagonal)?
-                    const aboveHasBendingOut = connRoutes.some(r => r.from === subjAbove.id && r.sFrom.col !== r.sTo.col);
-
-                    if (aboveHasBendingOut) {
-                        // Evadir la flecha invasora
-                        if (route.sFrom.col < route.sTo.col) port = 75;  // Viene de la izquierda
-                        else port = 125; // Viene de la derecha (o de la misma col pero desviada)
-                    }
-                }
+            if (destHasStraightIn && sourceHasStraightOut) {
+                // Hay H falsa. Desviamos la llegada a un costado.
+                const targetCenterX = getRelativePos(document.getElementById(`card-${route.to}`), wrapperEl).x + 100;
+                if (laneX < targetCenterX) return 75;  // Viene bajando por la izquierda
+                else return 125; // Viene bajando por la derecha
             }
-            return port;
+            
+            return 100; // Sin "H", se fusionan libremente en el centro
         }
 
-        // --- 4. GESTORES DE CARRILES (REGLA 2, 3 y 5) ---
+        // --- 4. GESTORES DE CARRILES (Reglas 2, 3 y 5) ---
         const hSegments = []; 
-        const vTracks = {}; 
+        const vSegments = []; 
         const ghostCentersOccupied = {}; 
 
         function getHTrack(levelId, startX, endX, isCoreq, sourceId, targetId) {
-            if (isCoreq) return 32; // Correquisitos intactos
+            if (isCoreq) return 32; 
 
-            const priorities = [16, 0, 8, 24]; // REGLA 5: Prioridad Centro, luego bordes
+            // Prioridad siempre en el centro (pixel 8)
+            const priorities = [8, 16, 0, 24]; 
             const minX = Math.min(startX, endX);
             const maxX = Math.max(startX, endX);
 
             for (let p of priorities) {
                 const collision = hSegments.find(seg => {
                     if (seg.level !== levelId || seg.track !== p) return false;
-                    
                     const intersects = !(maxX < seg.minX || minX > seg.maxX);
                     if (!intersects) return false;
-
-                    // REGLA 2 y 3 (NUEVA): Si comparten origen o destino, NO ES COLISIÓN, se fusionan
+                    
+                    // REGLA 2 y 3: Se fusionan horizontalmente si comparten origen o destino
                     const canShare = (seg.sourceId === sourceId || seg.targetId === targetId);
                     return !canShare; 
                 });
@@ -2826,14 +2822,35 @@
                     return p;
                 }
             }
-            return 16; 
+            return 8; 
         }
 
-        function getVTrack(colIdx) {
-            if (vTracks[colIdx] === undefined) vTracks[colIdx] = 0;
-            const track = vTracks[colIdx] % 5;
-            vTracks[colIdx]++;
-            return 9 + (track * 8); 
+        function getVTrack(colIdx, startY, endY, travelDirection, sourceId, targetId) {
+            // Descenso Temprano: La prioridad del pasillo cambia según hacia dónde se dirige la flecha
+            let priorities;
+            if (travelDirection === 'right') priorities = [17, 25, 9, 33, 41];
+            else priorities = [33, 25, 41, 17, 9];
+
+            const minY = Math.min(startY, endY);
+            const maxY = Math.max(startY, endY);
+
+            for (let p of priorities) {
+                const collision = vSegments.find(seg => {
+                    if (seg.colIdx !== colIdx || seg.track !== p) return false;
+                    const intersects = !(maxY < seg.minY || minY > seg.maxY);
+                    if (!intersects) return false;
+                    
+                    // FUSIÓN VERTICAL: Comparten cable exacto si nacen de la misma materia
+                    const canShare = (seg.sourceId === sourceId);
+                    return !canShare; 
+                });
+
+                if (!collision) {
+                    vSegments.push({ colIdx, track: p, minY, maxY, sourceId, targetId });
+                    return p;
+                }
+            }
+            return priorities[0]; 
         }
 
         // --- 5. TRAZADO DE RUTAS ---
@@ -2883,19 +2900,14 @@
                     pathData = `M ${startX} ${yCenter} H ${endX}`; 
                 } else {
                     const dirOffset = isFromLeft ? 15 : -15;
-                    const routeY = route.lvlFromIdx === 0 
-                        ? (fromPos.y - 20) 
-                        : levelBoundsY[state.levels[route.lvlFromIdx - 1].id];
+                    // DETALLE CORREQUISITOS: Reposan exacto sobre el borde del techo (levelTopY)
+                    const routeY = levelTopY[route.sFrom.level] || (fromPos.y - 12);
                     
                     pathData = `M ${startX} ${yCenter} H ${startX + dirOffset} V ${routeY} H ${endX - dirOffset} V ${yCenter} H ${endX}`;
                 }
             } else {
-                // REGLA 2: TODAS las de salida usan el centro 100px para fusionarse en un troncal
+                // REGLA 2: TODAS las flechas de salida nacen del centro fusionadas
                 const x1 = fromPos.x + 100;
-                
-                // REGLA 4: El puerto de entrada calcula si debe evadir o usar el centro
-                const portXIn = getIncomingPort(route);
-                const x2 = toPos.x + portXIn;
                 
                 const y1 = fromPos.y + fromCard.offsetHeight; 
                 const y2 = toPos.y; 
@@ -2909,12 +2921,23 @@
                     const baseYIn = levelBoundsY[targetLvlIdIn] || (y2 - 32);
 
                     if (ghostCellCol !== -1 && ghostCellCol === route.sTo.col) {
-                        const hTrackTop = getHTrack(route.sFrom.level, x1, x2, false, route.from, route.to);
+                        const hTrackTop = getHTrack(route.sFrom.level, x1, toPos.x + 100, false, route.from, route.to);
                         const y_pasillo1 = baseYOut + hTrackTop;
+                        const portXIn = getIncomingPort(route, toPos.x + 100);
+                        const x2 = toPos.x + portXIn;
+                        
                         pathData = `M ${x1} ${y1} V ${y_pasillo1} H ${x2} V ${y2}`;
                     } else {
+                        // Calcula el pasillo exacto por el que va a bajar (xRef)
                         const xRef = 236 + ((route.vColRoute + 1) * 200) + (route.vColRoute * 50); 
-                        const laneX = xRef + getVTrack(route.vColRoute); 
+                        
+                        // Verifica si tuvo que irse a la derecha o a la izquierda para llegar al pasillo
+                        const travelDir = (x1 < xRef) ? 'right' : 'left';
+                        const trackOffset = getVTrack(route.vColRoute, baseYOut, baseYIn, travelDir, route.from, route.to);
+                        const laneX = xRef + trackOffset; 
+                        
+                        const portXIn = getIncomingPort(route, laneX);
+                        const x2 = toPos.x + portXIn;
 
                         if (route.lvlDistance === 1) {
                             const hTrack = getHTrack(route.sFrom.level, x1, x2, false, route.from, route.to); 
