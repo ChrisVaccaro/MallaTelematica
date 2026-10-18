@@ -2704,7 +2704,7 @@
         svg.style.width = '100%'; 
         svg.style.height = '100%';
         if (ghostSvg) { 
-            ghostSvg.innerHTML = ''; // Limpiamos para el modo depuración
+            ghostSvg.innerHTML = ''; // Limpiamos el canvas de depuración
             ghostSvg.style.width = '100%'; 
             ghostSvg.style.height = '100%'; 
         }
@@ -2776,7 +2776,6 @@
             };
         }).filter(Boolean);
 
-        // Orden de prioridad para prevenir empalmes
         connRoutes.sort((a, b) => b.lvlFromIdx - a.lvlFromIdx);
 
         // --- 3. GESTOR DE LLEGADAS Y SOMBRAS ---
@@ -2811,8 +2810,7 @@
             
             return 100; 
         }
-
-        // FUNCIÓN AUXILIAR: Obtener inicio dinámico del pasillo (INTACTA)
+        
         function getDynamicGapX(colIdx) {
             let xRef = 0;
             const refSubj = state.subjects.find(s => s.col === colIdx);
@@ -2822,14 +2820,13 @@
                     xRef = getRelativePos(refCard, wrapperEl).x + refCard.offsetWidth;
                 }
             }
-            // Fallback de seguridad por si no encuentra materia en esa columna
             if (xRef === 0) xRef = 236 + ((colIdx + 1) * 200) + (colIdx * 50);
             return xRef;
         }
 
-        // --- 4. LA NUEVA MATRIZ DE CARRILES (GRID STATE) ---
-        const hSegments = []; // { level, track, minX, maxX, sourceId, y }
-        const vSegments = []; // { colIdx, track, minY, maxY, sourceId, x }
+        // --- 4. LA MATRIZ DE CARRILES (GRID STATE) ---
+        const hSegments = []; 
+        const vSegments = []; 
         const ghostCentersOccupied = {}; 
         const coreqOccupied = {}; 
 
@@ -2904,36 +2901,14 @@
             return priorities[0]; 
         }
 
-        // --- 5. GENERADOR DE SALTOS (ARC HOPS) ---
-        function drawHorizontalWithHops(startX, endX, y, currentSourceId) {
-            const minX = Math.min(startX, endX);
-            const maxX = Math.max(startX, endX);
-            const isGoingRight = startX < endX;
-            const hopRadius = 5; 
-            
-            const intersections = vSegments
-                .filter(seg => seg.minY < y && seg.maxY > y && seg.x > (minX + hopRadius) && seg.x < (maxX - hopRadius) && seg.sourceId !== currentSourceId)
-                .map(seg => seg.x)
-                .sort((a, b) => isGoingRight ? a - b : b - a);
+        // --- 5. PASADA 1: CALCULAR RUTAS Y REGISTRAR LÍNEAS VERTICALES ---
+        const computedRoutes = [];
+        const allVerticalLines = [];
 
-            let d = `M ${startX} ${y}`;
-            let currentX = startX;
-
-            intersections.forEach(ix => {
-                if (Math.abs(currentX - ix) >= hopRadius * 2) {
-                    const startHopX = isGoingRight ? ix - hopRadius : ix + hopRadius;
-                    const endHopX = isGoingRight ? ix + hopRadius : ix - hopRadius;
-                    const sweep = isGoingRight ? 1 : 0; 
-                    d += ` L ${startHopX} ${y} A ${hopRadius} ${hopRadius} 0 0 ${sweep} ${endHopX} ${y}`;
-                    currentX = endHopX;
-                }
-            });
-            d += ` L ${endX} ${y}`;
-            
-            return d.replace(`M ${startX} ${y} `, ''); 
+        function addVLine(x, yStart, yEnd, sourceId) {
+            allVerticalLines.push({ x, minY: Math.min(yStart, yEnd), maxY: Math.max(yStart, yEnd), sourceId });
         }
 
-        // --- 6. TRAZADO DE RUTAS ---
         connRoutes.forEach((route) => {
             const fromCard = document.getElementById(`card-${route.from}`); 
             const toCard = document.getElementById(`card-${route.to}`); 
@@ -2942,8 +2917,7 @@
             const isSameLevel = (route.lvlDistance === 0);
             const fromPos = getRelativePos(fromCard, wrapperEl);
             const toPos = getRelativePos(toCard, wrapperEl);
-            let pathData = "";
-
+            
             let canCrossHorizontal = false;
             if (isSameLevel && Math.abs(route.sFrom.col - route.sTo.col) > 1) {
                 const minCol = Math.min(route.sFrom.col, route.sTo.col);
@@ -2970,6 +2944,8 @@
                 }
             }
 
+            let routeInfo = { route, isSameLevel };
+
             if (isSameLevel) {
                 const isFromLeft = route.sFrom.col < route.sTo.col;
                 const startX = isFromLeft ? (fromPos.x + fromCard.offsetWidth) : fromPos.x;
@@ -2977,8 +2953,8 @@
                 const yCenter = fromPos.y + (fromCard.offsetHeight / 2);
 
                 if (Math.abs(route.sFrom.col - route.sTo.col) === 1 || canCrossHorizontal) {
-                    const hPath = drawHorizontalWithHops(startX, endX, yCenter, route.from);
-                    pathData = `M ${startX} ${yCenter} ${hPath}`; 
+                    routeInfo.type = 'coreq-direct';
+                    routeInfo.startX = startX; routeInfo.endX = endX; routeInfo.yCenter = yCenter;
                 } else {
                     const dirOffset = isFromLeft ? 9 : -9;
                     const levelAboveId = route.lvlFromIdx > 0 ? state.levels[route.lvlFromIdx - 1].id : null;
@@ -2995,8 +2971,13 @@
                     
                     const routeY = gapBaseY + cTrackOffset;
                     
-                    const hPath = drawHorizontalWithHops(startX + dirOffset, endX - dirOffset, routeY, route.from);
-                    pathData = `M ${startX} ${yCenter} H ${startX + dirOffset} V ${routeY} ${hPath} V ${yCenter} H ${endX}`;
+                    routeInfo.type = 'coreq-roof';
+                    routeInfo.startX = startX; routeInfo.endX = endX; routeInfo.yCenter = yCenter;
+                    routeInfo.dirOffset = dirOffset; routeInfo.routeY = routeY;
+
+                    // Registrar caídas verticales de correquisito
+                    addVLine(startX + dirOffset, yCenter, routeY, route.from);
+                    addVLine(endX - dirOffset, routeY, yCenter, route.from);
                 }
             } else {
                 const x1 = fromPos.x + 100;
@@ -3006,7 +2987,10 @@
                 if (route.isStraight) {
                     if (route.lvlDistance > 1) ghostCentersOccupied[`${route.sFrom.col}-${route.lvlFromIdx}-${route.lvlToIdx}`] = true;
                     vSegments.push({ colIdx: route.sFrom.col, track: 100, minY: y1, maxY: y2, sourceId: route.from, x: x1 });
-                    pathData = `M ${x1} ${y1} V ${y2}`;
+                    
+                    routeInfo.type = 'req-straight';
+                    routeInfo.x1 = x1; routeInfo.y1 = y1; routeInfo.y2 = y2;
+                    addVLine(x1, y1, y2, route.from);
                 } else {
                     const baseYOut = levelBoundsY[route.sFrom.level] || (y1 + 16);
                     const targetLvlIdIn = route.lvlToIdx > 0 ? state.levels[route.lvlToIdx - 1].id : route.sTo.level;
@@ -3018,8 +3002,12 @@
                         const portXIn = getIncomingPort(route, toPos.x + 100);
                         const x2 = toPos.x + portXIn;
                         
-                        const hPath = drawHorizontalWithHops(x1, x2, y_pasillo1, route.from);
-                        pathData = `M ${x1} ${y1} V ${y_pasillo1} ${hPath} V ${y2}`;
+                        routeInfo.type = 'req-ghost';
+                        routeInfo.x1 = x1; routeInfo.y1 = y1; routeInfo.x2 = x2; routeInfo.y2 = y2;
+                        routeInfo.y_pasillo1 = y_pasillo1;
+
+                        addVLine(x1, y1, y_pasillo1, route.from);
+                        addVLine(x2, y_pasillo1, y2, route.from);
                     } else {
                         const xRef = getDynamicGapX(route.vColRoute); 
                         const travelDir = (route.sFrom.col <= route.vColRoute) ? 'right' : 'left';
@@ -3032,8 +3020,12 @@
                             const hTrack = getHTrack(route.sFrom.level, x1, x2, false, route.from, baseYOut); 
                             const midY = baseYOut + hTrack; 
                             
-                            const hPath = drawHorizontalWithHops(x1, x2, midY, route.from);
-                            pathData = `M ${x1} ${y1} V ${midY} ${hPath} V ${y2}`;
+                            routeInfo.type = 'req-d1';
+                            routeInfo.x1 = x1; routeInfo.y1 = y1; routeInfo.x2 = x2; routeInfo.y2 = y2;
+                            routeInfo.midY = midY;
+
+                            addVLine(x1, y1, midY, route.from);
+                            addVLine(x2, midY, y2, route.from);
                         } else {
                             const hTrackTop = getHTrack(route.sFrom.level, x1, laneX, false, route.from, baseYOut);
                             const y_pasillo1 = baseYOut + hTrackTop; 
@@ -3041,40 +3033,133 @@
                             const hTrackBot = getHTrack(targetLvlIdIn, laneX, x2, false, route.from, baseYIn);
                             const y_pasillo2 = baseYIn + hTrackBot; 
                             
-                            const hPathTop = drawHorizontalWithHops(x1, laneX, y_pasillo1, route.from);
-                            const hPathBot = drawHorizontalWithHops(laneX, x2, y_pasillo2, route.from);
-                            
-                            pathData = `M ${x1} ${y1} V ${y_pasillo1} ${hPathTop} V ${y_pasillo2} ${hPathBot} V ${y2}`;
+                            routeInfo.type = 'req-long';
+                            routeInfo.x1 = x1; routeInfo.y1 = y1; routeInfo.x2 = x2; routeInfo.y2 = y2;
+                            routeInfo.laneX = laneX; routeInfo.y_pasillo1 = y_pasillo1; routeInfo.y_pasillo2 = y_pasillo2;
+
+                            addVLine(x1, y1, y_pasillo1, route.from);
+                            addVLine(laneX, y_pasillo1, y_pasillo2, route.from);
+                            addVLine(x2, y_pasillo2, y2, route.from);
                         }
                     }
                 }
             }
+            computedRoutes.push(routeInfo);
+        });
+
+        // --- 6. PASADA 2: GENERADOR DE SALTOS Y RENDERIZADO ---
+        function drawHorizontalWithHops(startX, endX, y, currentSourceId) {
+            const minX = Math.min(startX, endX);
+            const maxX = Math.max(startX, endX);
+            const isGoingRight = startX < endX;
+            const hopRadius = 5; 
             
+            // Usamos la memoria total (allVerticalLines) en lugar de solo vSegments
+            const intersections = allVerticalLines
+                .filter(seg => seg.minY < y && seg.maxY > y && seg.x > (minX + hopRadius) && seg.x < (maxX - hopRadius) && seg.sourceId !== currentSourceId)
+                .map(seg => seg.x)
+                .sort((a, b) => isGoingRight ? a - b : b - a);
+
+            let d = `M ${startX} ${y}`;
+            let currentX = startX;
+
+            intersections.forEach(ix => {
+                if (Math.abs(currentX - ix) >= hopRadius * 2) {
+                    const startHopX = isGoingRight ? ix - hopRadius : ix + hopRadius;
+                    const endHopX = isGoingRight ? ix + hopRadius : ix - hopRadius;
+                    const sweep = isGoingRight ? 1 : 0; 
+                    d += ` L ${startHopX} ${y} A ${hopRadius} ${hopRadius} 0 0 ${sweep} ${endHopX} ${y}`;
+                    currentX = endHopX;
+                }
+            });
+            d += ` L ${endX} ${y}`;
+            
+            return d.replace(`M ${startX} ${y} `, ''); 
+        }
+
+        computedRoutes.forEach((info) => {
+            let pathData = "";
+            switch(info.type) {
+                case 'coreq-direct':
+                    pathData = `M ${info.startX} ${info.yCenter} ${drawHorizontalWithHops(info.startX, info.endX, info.yCenter, info.route.from)}`;
+                    break;
+                case 'coreq-roof':
+                    pathData = `M ${info.startX} ${info.yCenter} H ${info.startX + info.dirOffset} V ${info.routeY} ${drawHorizontalWithHops(info.startX + info.dirOffset, info.endX - info.dirOffset, info.routeY, info.route.from)} V ${info.yCenter} H ${info.endX}`;
+                    break;
+                case 'req-straight':
+                    pathData = `M ${info.x1} ${info.y1} V ${info.y2}`;
+                    break;
+                case 'req-ghost':
+                    pathData = `M ${info.x1} ${info.y1} V ${info.y_pasillo1} ${drawHorizontalWithHops(info.x1, info.x2, info.y_pasillo1, info.route.from)} V ${info.y2}`;
+                    break;
+                case 'req-d1':
+                    pathData = `M ${info.x1} ${info.y1} V ${info.midY} ${drawHorizontalWithHops(info.x1, info.x2, info.midY, info.route.from)} V ${info.y2}`;
+                    break;
+                case 'req-long':
+                    pathData = `M ${info.x1} ${info.y1} V ${info.y_pasillo1} ${drawHorizontalWithHops(info.x1, info.laneX, info.y_pasillo1, info.route.from)} V ${info.y_pasillo2} ${drawHorizontalWithHops(info.laneX, info.x2, info.y_pasillo2, info.route.from)} V ${info.y2}`;
+                    break;
+            }
+
             const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
             path.setAttribute('d', pathData); 
-            path.setAttribute('class', `connection drawn ${isSameLevel ? 'corequisite' : ''}`); 
+            path.setAttribute('class', `connection drawn ${info.isSameLevel ? 'corequisite' : ''}`); 
             path.style.strokeLinejoin = "round"; 
             path.style.strokeLinecap = "round"; 
             path.style.fill = "none";
-            path.dataset.from = route.from; 
-            path.dataset.to = route.to;
-            path.setAttribute('marker-end', isSameLevel ? 'url(#arrowhead-coreq)' : 'url(#arrowhead)');
+            path.dataset.from = info.route.from; 
+            path.dataset.to = info.route.to;
+            path.setAttribute('marker-end', info.isSameLevel ? 'url(#arrowhead-coreq)' : 'url(#arrowhead)');
             
             path.onmouseenter = (e) => { const t = document.getElementById('conn-delete-tooltip'); t.classList.add('visible'); t.style.left = (e.clientX+15)+'px'; t.style.top = (e.clientY+15)+'px'; };
             path.onmousemove = (e) => { const t = document.getElementById('conn-delete-tooltip'); t.style.left = (e.clientX+15)+'px'; t.style.top = (e.clientY+15)+'px'; };
             path.onmouseleave = () => { document.getElementById('conn-delete-tooltip').classList.remove('visible'); };
-            path.ondblclick = (e) => { e.stopPropagation(); document.getElementById('conn-delete-tooltip').classList.remove('visible'); openDeleteConnModal(route.from, route.to, route.sFrom.name, route.sTo.name); };
+            path.ondblclick = (e) => { e.stopPropagation(); document.getElementById('conn-delete-tooltip').classList.remove('visible'); openDeleteConnModal(info.route.from, info.route.to, info.route.sFrom.name, info.route.sTo.name); };
             svg.appendChild(path);
         });
         
-        // --- 7. MODO DEPURACIÓN VISUAL (GHOST LAYER) ---
+        // --- 7. MODO DEPURACIÓN: VISUALIZADOR DE CARRILES ---
         if (ghostSvg) {
+            const mapWidth = Math.max(3000, wrapperEl.scrollWidth);
+            const mapHeight = Math.max(3000, wrapperEl.scrollHeight);
+            
+            // Rejilla teórica Horizontal (Pasillos Prerrequisitos y Techos Correquisitos)
+            visibleLevels.forEach(lvl => {
+                const baseY = levelBoundsY[lvl.id];
+                if (baseY) {
+                    [0, 8, 16, 24, 32, 40].forEach(p => {
+                        const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                        line.setAttribute('d', `M 0 ${baseY + p} L ${mapWidth} ${baseY + p}`);
+                        line.style.stroke = '#e2e8f0'; 
+                        line.style.strokeWidth = '1';
+                        line.style.strokeDasharray = '2, 4';
+                        line.style.fill = 'none';
+                        line.style.pointerEvents = 'none';
+                        ghostSvg.appendChild(line);
+                    });
+                }
+            });
+
+            // Rejilla teórica Vertical
+            for (let c = 0; c < NUM_COLUMNS; c++) {
+                const xRef = getDynamicGapX(c);
+                [17, 25, 33].forEach(p => {
+                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    line.setAttribute('d', `M ${xRef + p} 0 L ${xRef + p} ${mapHeight}`);
+                    line.style.stroke = '#e2e8f0'; 
+                    line.style.strokeWidth = '1';
+                    line.style.strokeDasharray = '2, 4';
+                    line.style.fill = 'none';
+                    line.style.pointerEvents = 'none';
+                    ghostSvg.appendChild(line);
+                });
+            }
+
+            // Segmentos ocupados reales (Trazos continuos oscuros)
             hSegments.forEach(seg => {
                 const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 line.setAttribute('d', `M ${seg.minX} ${seg.y} L ${seg.maxX} ${seg.y}`);
-                line.style.stroke = '#cbd5e1'; // Gris muy suave
-                line.style.strokeWidth = '1.5';
-                line.style.strokeDasharray = '4, 4';
+                line.style.stroke = '#94a3b8'; 
+                line.style.strokeWidth = '2';
                 line.style.fill = 'none';
                 line.style.pointerEvents = 'none';
                 ghostSvg.appendChild(line);
@@ -3083,9 +3168,8 @@
             vSegments.forEach(seg => {
                 const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 line.setAttribute('d', `M ${seg.x} ${seg.minY} L ${seg.x} ${seg.maxY}`);
-                line.style.stroke = '#cbd5e1'; // Gris muy suave
-                line.style.strokeWidth = '1.5';
-                line.style.strokeDasharray = '4, 4';
+                line.style.stroke = '#94a3b8';
+                line.style.strokeWidth = '2';
                 line.style.fill = 'none';
                 line.style.pointerEvents = 'none';
                 ghostSvg.appendChild(line);
