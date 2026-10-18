@@ -2704,13 +2704,29 @@
         svg.style.width = '100%'; 
         svg.style.height = '100%';
         if (ghostSvg) { 
-            ghostSvg.innerHTML = ''; // Limpiamos el canvas de depuración
+            ghostSvg.innerHTML = ''; // Limpiamos el canvas de depuración en cada render
             ghostSvg.style.width = '100%'; 
             ghostSvg.style.height = '100%'; 
         }
 
         const cfg = state.config || (typeof initialData !== 'undefined' ? initialData.config : { semesters: 10 });
         const visibleLevels = state.levels.slice(0, cfg.semesters);
+        
+        // --- 0. MOTOR DE COORDENADAS ANTI-ZOOM ---
+        const z = typeof currentZoom !== 'undefined' ? currentZoom : 1;
+        const wrapperRect = wrapperEl.getBoundingClientRect();
+
+        function getZoomedPos(el) {
+            const rect = el.getBoundingClientRect();
+            return {
+                x: (rect.left - wrapperRect.left) / z,
+                y: (rect.top - wrapperRect.top) / z,
+                right: (rect.right - wrapperRect.left) / z,
+                bottom: (rect.bottom - wrapperRect.top) / z,
+                width: rect.width / z,
+                height: rect.height / z
+            };
+        }
         
         // --- 1. MAPA ESPACIAL ABSOLUTO ---
         const occupied = {}; 
@@ -2730,9 +2746,9 @@
                     if (cardEl) {
                         const rowEl = cardEl.closest('.level-content-grid') || cardEl.closest('.level-row');
                         if (rowEl) {
-                            const rowPos = getRelativePos(rowEl, wrapperEl);
-                            levelBoundsY[s.level] = rowPos.y + rowEl.offsetHeight; 
-                            levelTopY[s.level] = rowPos.y; 
+                            const rowPos = getZoomedPos(rowEl);
+                            levelBoundsY[s.level] = rowPos.bottom; 
+                            levelTopY[s.level] = rowPos.top; 
                         }
                     }
                 }
@@ -2803,7 +2819,7 @@
 
             if ((destHasStraightIn && sourceHasStraightOut) || shadowBlocked) {
                 const targetCard = document.getElementById(`card-${route.to}`);
-                const targetCenterX = getRelativePos(targetCard, wrapperEl).x + 100;
+                const targetCenterX = getZoomedPos(targetCard).x + 100;
                 if (laneX < targetCenterX) return 75;  
                 else return 125; 
             }
@@ -2812,28 +2828,25 @@
         }
         
         function getDynamicGapX(colIdx) {
-            let xRef = 0;
             const refSubj = state.subjects.find(s => s.col === colIdx);
             if (refSubj) {
                 const refCard = document.getElementById(`card-${refSubj.id}`);
                 if (refCard) {
-                    xRef = getRelativePos(refCard, wrapperEl).x + refCard.offsetWidth;
+                    return getZoomedPos(refCard).right;
                 }
             }
-            if (xRef === 0) xRef = 236 + ((colIdx + 1) * 200) + (colIdx * 50);
-            return xRef;
+            // Fallback de seguridad
+            return 236 + (colIdx * 250) + 200;
         }
 
-        // --- 4. LA MATRIZ DE CARRILES (GRID STATE) ---
+        // --- 4. LA MATRIZ DE CARRILES ESTRICTA ---
         const hSegments = []; 
         const vSegments = []; 
         const ghostCentersOccupied = {}; 
         const coreqOccupied = {}; 
 
-        function getHTrack(levelId, startX, endX, isCoreq, sourceId, exactYBase) {
-            if (isCoreq) return 32; 
-
-            const priorities = [8, 24, 0, 16]; 
+        function getHTrack(levelId, startX, endX, sourceId, exactYBase) {
+            const priorities = [8, 16, 24]; // Solo los 3 carriles centrales permitidos para prerrequisitos
             const minX = Math.min(startX, endX);
             const maxX = Math.max(startX, endX);
 
@@ -2848,8 +2861,8 @@
                 const fCard = document.getElementById(`card-${fr.from}`);
                 const tCard = document.getElementById(`card-${fr.to}`);
                 if (fCard && tCard) {
-                    const startPortX = getRelativePos(fCard, wrapperEl).x + 100;
-                    let endPortX = (fr.lvlDistance === 1) ? getRelativePos(tCard, wrapperEl).x + 100 : getDynamicGapX(fr.vColRoute);
+                    const startPortX = getZoomedPos(fCard).x + 100;
+                    let endPortX = (fr.lvlDistance === 1) ? getZoomedPos(tCard).x + 100 : getDynamicGapX(fr.vColRoute);
                     familySpanMinX = Math.min(familySpanMinX, startPortX, endPortX);
                     familySpanMaxX = Math.max(familySpanMaxX, startPortX, endPortX);
                 }
@@ -2873,7 +2886,7 @@
                     return p;
                 }
             }
-            return 8; 
+            return 8; // Fallback extremo
         }
 
         function getVTrack(colIdx, startY, endY, travelDirection, sourceId, exactXBase) {
@@ -2901,7 +2914,7 @@
             return priorities[0]; 
         }
 
-        // --- 5. PASADA 1: CALCULAR RUTAS Y REGISTRAR LÍNEAS VERTICALES ---
+        // --- 5. PASADA 1: CALCULAR RUTAS Y REGISTRAR EL 100% DE LÍNEAS VERTICALES ---
         const computedRoutes = [];
         const allVerticalLines = [];
 
@@ -2915,8 +2928,8 @@
             if (!fromCard || !toCard) return;
 
             const isSameLevel = (route.lvlDistance === 0);
-            const fromPos = getRelativePos(fromCard, wrapperEl);
-            const toPos = getRelativePos(toCard, wrapperEl);
+            const fromPos = getZoomedPos(fromCard);
+            const toPos = getZoomedPos(toCard);
             
             let canCrossHorizontal = false;
             if (isSameLevel && Math.abs(route.sFrom.col - route.sTo.col) > 1) {
@@ -2948,9 +2961,9 @@
 
             if (isSameLevel) {
                 const isFromLeft = route.sFrom.col < route.sTo.col;
-                const startX = isFromLeft ? (fromPos.x + fromCard.offsetWidth) : fromPos.x;
-                const endX = isFromLeft ? toPos.x : (toPos.x + toCard.offsetWidth);
-                const yCenter = fromPos.y + (fromCard.offsetHeight / 2);
+                const startX = isFromLeft ? fromPos.right : fromPos.x;
+                const endX = isFromLeft ? toPos.x : toPos.right;
+                const yCenter = fromPos.y + (fromPos.height / 2);
 
                 if (Math.abs(route.sFrom.col - route.sTo.col) === 1 || canCrossHorizontal) {
                     routeInfo.type = 'coreq-direct';
@@ -2958,15 +2971,16 @@
                 } else {
                     const dirOffset = isFromLeft ? 9 : -9;
                     const levelAboveId = route.lvlFromIdx > 0 ? state.levels[route.lvlFromIdx - 1].id : null;
-                    const gapBaseY = levelAboveId ? levelBoundsY[levelAboveId] : (levelTopY[route.sFrom.level] - 50);
+                    const gapBaseY = levelAboveId ? levelBoundsY[levelAboveId] : (levelTopY[route.sFrom.level] - 32);
                     
                     if (!coreqOccupied[route.sFrom.level]) coreqOccupied[route.sFrom.level] = [];
-                    let cTrackOffset = 32; 
+                    let cTrackOffset = 32; // Techo de la tarjeta de abajo
+                    
                     const minCol = Math.min(route.sFrom.col, route.sTo.col);
                     const maxColIter = Math.max(route.sFrom.col, route.sTo.col);
                     
                     const hasCollision = coreqOccupied[route.sFrom.level].some(c => !(maxColIter < c.min || minCol > c.max) && c.sourceId !== route.from);
-                    if (hasCollision) cTrackOffset = 40; 
+                    if (hasCollision) cTrackOffset = 0; // Subir al techo del pasillo (0) si hay colisión múltiple
                     coreqOccupied[route.sFrom.level].push({ min: minCol, max: maxColIter, sourceId: route.from });
                     
                     const routeY = gapBaseY + cTrackOffset;
@@ -2975,14 +2989,14 @@
                     routeInfo.startX = startX; routeInfo.endX = endX; routeInfo.yCenter = yCenter;
                     routeInfo.dirOffset = dirOffset; routeInfo.routeY = routeY;
 
-                    // Registrar caídas verticales de correquisito
+                    // Registro para que los demás puedan saltar sobre los brazos del correquisito
                     addVLine(startX + dirOffset, yCenter, routeY, route.from);
                     addVLine(endX - dirOffset, routeY, yCenter, route.from);
                 }
             } else {
                 const x1 = fromPos.x + 100;
-                const y1 = fromPos.y + fromCard.offsetHeight; 
-                const y2 = toPos.y; 
+                const y1 = fromPos.bottom; 
+                const y2 = toPos.top; 
 
                 if (route.isStraight) {
                     if (route.lvlDistance > 1) ghostCentersOccupied[`${route.sFrom.col}-${route.lvlFromIdx}-${route.lvlToIdx}`] = true;
@@ -2997,7 +3011,7 @@
                     const baseYIn = levelBoundsY[targetLvlIdIn] || (y2 - 32);
 
                     if (ghostCellCol !== -1 && ghostCellCol === route.sTo.col) {
-                        const hTrackTop = getHTrack(route.sFrom.level, x1, toPos.x + 100, false, route.from, baseYOut);
+                        const hTrackTop = getHTrack(route.sFrom.level, x1, toPos.x + 100, route.from, baseYOut);
                         const y_pasillo1 = baseYOut + hTrackTop;
                         const portXIn = getIncomingPort(route, toPos.x + 100);
                         const x2 = toPos.x + portXIn;
@@ -3017,7 +3031,7 @@
                         const x2 = toPos.x + portXIn;
 
                         if (route.lvlDistance === 1) {
-                            const hTrack = getHTrack(route.sFrom.level, x1, x2, false, route.from, baseYOut); 
+                            const hTrack = getHTrack(route.sFrom.level, x1, x2, route.from, baseYOut); 
                             const midY = baseYOut + hTrack; 
                             
                             routeInfo.type = 'req-d1';
@@ -3027,10 +3041,10 @@
                             addVLine(x1, y1, midY, route.from);
                             addVLine(x2, midY, y2, route.from);
                         } else {
-                            const hTrackTop = getHTrack(route.sFrom.level, x1, laneX, false, route.from, baseYOut);
+                            const hTrackTop = getHTrack(route.sFrom.level, x1, laneX, route.from, baseYOut);
                             const y_pasillo1 = baseYOut + hTrackTop; 
                             
-                            const hTrackBot = getHTrack(targetLvlIdIn, laneX, x2, false, route.from, baseYIn);
+                            const hTrackBot = getHTrack(targetLvlIdIn, laneX, x2, route.from, baseYIn);
                             const y_pasillo2 = baseYIn + hTrackBot; 
                             
                             routeInfo.type = 'req-long';
@@ -3047,16 +3061,16 @@
             computedRoutes.push(routeInfo);
         });
 
-        // --- 6. PASADA 2: GENERADOR DE SALTOS Y RENDERIZADO ---
+        // --- 6. PASADA 2: GENERADOR DE SALTOS Y RENDERIZADO DEFINITIVO ---
         function drawHorizontalWithHops(startX, endX, y, currentSourceId) {
             const minX = Math.min(startX, endX);
             const maxX = Math.max(startX, endX);
             const isGoingRight = startX < endX;
             const hopRadius = 5; 
             
-            // Usamos la memoria total (allVerticalLines) en lugar de solo vSegments
+            // Usamos la memoria total (allVerticalLines) ajustando +- 0.5px para evitar fallos de colisión flotante
             const intersections = allVerticalLines
-                .filter(seg => seg.minY < y && seg.maxY > y && seg.x > (minX + hopRadius) && seg.x < (maxX - hopRadius) && seg.sourceId !== currentSourceId)
+                .filter(seg => seg.minY <= y + 0.5 && seg.maxY >= y - 0.5 && seg.x > (minX + hopRadius) && seg.x < (maxX - hopRadius) && seg.sourceId !== currentSourceId)
                 .map(seg => seg.x)
                 .sort((a, b) => isGoingRight ? a - b : b - a);
 
@@ -3117,16 +3131,16 @@
             svg.appendChild(path);
         });
         
-        // --- 7. MODO DEPURACIÓN: VISUALIZADOR DE CARRILES ---
+        // --- 7. MODO DEPURACIÓN: VISUALIZADOR DE CARRILES AL 100% ---
         if (ghostSvg) {
-            const mapWidth = Math.max(3000, wrapperEl.scrollWidth);
-            const mapHeight = Math.max(3000, wrapperEl.scrollHeight);
+            const mapWidth = Math.max(3000, wrapperEl.scrollWidth / z);
+            const mapHeight = Math.max(3000, wrapperEl.scrollHeight / z);
             
-            // Rejilla teórica Horizontal (Pasillos Prerrequisitos y Techos Correquisitos)
+            // Rejilla teórica Horizontal (Pasillos 0, 8, 16, 24, 32)
             visibleLevels.forEach(lvl => {
                 const baseY = levelBoundsY[lvl.id];
                 if (baseY) {
-                    [0, 8, 16, 24, 32, 40].forEach(p => {
+                    [0, 8, 16, 24, 32].forEach(p => {
                         const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                         line.setAttribute('d', `M 0 ${baseY + p} L ${mapWidth} ${baseY + p}`);
                         line.style.stroke = '#e2e8f0'; 
@@ -3139,10 +3153,10 @@
                 }
             });
 
-            // Rejilla teórica Vertical
+            // Rejilla teórica Vertical (Autopista Completa 9, 17, 25, 33, 41)
             for (let c = 0; c < NUM_COLUMNS; c++) {
                 const xRef = getDynamicGapX(c);
-                [17, 25, 33].forEach(p => {
+                [9, 17, 25, 33, 41].forEach(p => {
                     const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                     line.setAttribute('d', `M ${xRef + p} 0 L ${xRef + p} ${mapHeight}`);
                     line.style.stroke = '#e2e8f0'; 
