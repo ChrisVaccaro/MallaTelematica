@@ -2775,7 +2775,7 @@
             };
         }).filter(Boolean);
 
-        // --- 3. GESTOR DE PUERTOS DE LLEGADA (Efecto H + Efecto Sombra) ---
+        // --- 3. GESTOR DE PUERTOS DE LLEGADA (Efecto H + Sombra de Largo Alcance) ---
         function getIncomingPort(route, laneX) {
             if (route.isStraight) return 100; 
 
@@ -2783,12 +2783,19 @@
             const sourceHasStraightOut = connRoutes.some(r => r.from === route.from && r.isStraight);
 
             let shadowBlocked = false;
-            if (route.lvlToIdx > 0) {
-                const levelAboveId = state.levels[route.lvlToIdx - 1].id;
+            
+            // SOMBRA DE LARGO ALCANCE: Escaneamos hacia arriba ignorando huecos
+            for (let l = route.lvlToIdx - 1; l >= 0; l--) {
+                const levelAboveId = state.levels[l].id;
                 const subjAbove = state.subjects.find(s => s.level === levelAboveId && s.col === route.sTo.col);
-                if (subjAbove && subjAbove.id !== route.from) {
-                    const aboveHasOut = connRoutes.some(r => r.from === subjAbove.id);
-                    if (aboveHasOut) shadowBlocked = true;
+                
+                if (subjAbove) {
+                    // Encontramos la primera materia física por encima del destino
+                    if (subjAbove.id !== route.from) {
+                        const aboveHasOut = connRoutes.some(r => r.from === subjAbove.id);
+                        if (aboveHasOut) shadowBlocked = true;
+                    }
+                    break; // Detenemos la búsqueda al chocar con la primera tarjeta
                 }
             }
 
@@ -2810,7 +2817,6 @@
         function getHTrack(levelId, startX, endX, isCoreq, sourceId) {
             if (isCoreq) return 32; 
 
-            // ¡RETOQUE! Saltos de 16px preferidos para máxima separación visual
             const priorities = [8, 24, 0, 16]; 
             const minX = Math.min(startX, endX);
             const maxX = Math.max(startX, endX);
