@@ -2714,7 +2714,7 @@
         // --- 1. MAPA ESPACIAL Y ANCLAJE ABSOLUTO ---
         const occupied = {}; 
         const levelBoundsY = {}; 
-        const levelTopY = {}; // Para el anclaje perfecto de los correquisitos
+        const levelTopY = {}; 
         let maxCol = 0;
 
         visibleLevels.forEach(l => occupied[l.id] = {});
@@ -2731,7 +2731,7 @@
                         if (rowEl) {
                             const rowPos = getRelativePos(rowEl, wrapperEl);
                             levelBoundsY[s.level] = rowPos.y + rowEl.offsetHeight; 
-                            levelTopY[s.level] = rowPos.y; // Techo exacto de la fila
+                            levelTopY[s.level] = rowPos.y; 
                         }
                     }
                 }
@@ -2760,7 +2760,7 @@
                         empty = false; break;
                     }
                 }
-                if (empty) isStraight = true; // El Rey de la Recta
+                if (empty) isStraight = true; 
             }
 
             if (!isStraight && lvlDistance > 0) {
@@ -2775,78 +2775,114 @@
             };
         }).filter(Boolean);
 
-        // --- 3. REGLA 4: GESTOR DE PUERTOS DE LLEGADA (Detector de Efecto H) ---
+        // --- 3. GESTOR DE PUERTOS DE LLEGADA (Efecto H + Efecto Sombra) ---
         function getIncomingPort(route, laneX) {
-            if (route.isStraight) return 100; // Rectas absolutas no se mueven
+            if (route.isStraight) return 100; 
 
-            // Detectamos si se está por formar una "H" óptica
+            // Efecto H: ¿Ambos extremos tiran rectas contrarias?
             const destHasStraightIn = connRoutes.some(r => r.to === route.to && r.isStraight);
             const sourceHasStraightOut = connRoutes.some(r => r.from === route.from && r.isStraight);
 
-            if (destHasStraightIn && sourceHasStraightOut) {
-                // Hay H falsa. Desviamos la llegada a un costado.
-                const targetCenterX = getRelativePos(document.getElementById(`card-${route.to}`), wrapperEl).x + 100;
-                if (laneX < targetCenterX) return 75;  // Viene bajando por la izquierda
-                else return 125; // Viene bajando por la derecha
+            // Efecto Sombra: ¿La materia EXACTAMENTE arriba de mi destino está sacando flechas al centro?
+            let shadowBlocked = false;
+            if (route.lvlToIdx > 0) {
+                const levelAboveId = state.levels[route.lvlToIdx - 1].id;
+                const subjAbove = state.subjects.find(s => s.level === levelAboveId && s.col === route.sTo.col);
+                // Si hay alguien arriba, y no soy yo mismo, reviso si saca flechas
+                if (subjAbove && subjAbove.id !== route.from) {
+                    const aboveHasOut = connRoutes.some(r => r.from === subjAbove.id);
+                    if (aboveHasOut) shadowBlocked = true;
+                }
+            }
+
+            // Si hay Efecto H o Efecto Sombra, prohibido el centro. Desvío lateral.
+            if ((destHasStraightIn && sourceHasStraightOut) || shadowBlocked) {
+                const targetCard = document.getElementById(`card-${route.to}`);
+                const targetCenterX = getRelativePos(targetCard, wrapperEl).x + 100;
+                if (laneX < targetCenterX) return 75;  
+                else return 125; 
             }
             
-            return 100; // Sin "H", se fusionan libremente en el centro
+            return 100; // Fusión feliz en el centro
         }
 
-        // --- 4. GESTORES DE CARRILES (Reglas 2, 3 y 5) ---
+        // --- 4. GESTORES DE CARRILES CON AGRUPACIÓN Y EXCLUSIVIDAD ---
         const hSegments = []; 
         const vSegments = []; 
         const ghostCentersOccupied = {}; 
 
-        function getHTrack(levelId, startX, endX, isCoreq, sourceId, targetId) {
+        function getHTrack(levelId, startX, endX, isCoreq, sourceId) {
             if (isCoreq) return 32; 
 
-            // Prioridad siempre en el centro (pixel 8)
             const priorities = [8, 16, 0, 24]; 
             const minX = Math.min(startX, endX);
             const maxX = Math.max(startX, endX);
 
+            // EVALUACIÓN POR GRUPO: Intentar unirse al bus horizontal que ya tenga mi familia en este nivel
+            const familySegs = hSegments.filter(seg => seg.level === levelId && seg.sourceId === sourceId);
+            if (familySegs.length > 0) {
+                const preferredTrack = familySegs[0].track;
+                // ¿Este nuevo tramo choca con alguna OTRA familia en mi pista preferida?
+                const collision = hSegments.find(seg => 
+                    seg.level === levelId && 
+                    seg.track === preferredTrack && 
+                    seg.sourceId !== sourceId && // Exclusividad de orígenes distintos
+                    !(maxX <= seg.minX || minX >= seg.maxX)
+                );
+                if (!collision) {
+                    hSegments.push({ level: levelId, track: preferredTrack, minX, maxX, sourceId });
+                    return preferredTrack;
+                }
+            }
+
+            // FALLBACK INDIVIDUAL (Bifurcación escalonada): Buscar nueva pista libre
             for (let p of priorities) {
-                const collision = hSegments.find(seg => {
-                    if (seg.level !== levelId || seg.track !== p) return false;
-                    const intersects = !(maxX < seg.minX || minX > seg.maxX);
-                    if (!intersects) return false;
-                    
-                    // REGLA 2 y 3: Se fusionan horizontalmente si comparten origen o destino
-                    const canShare = (seg.sourceId === sourceId || seg.targetId === targetId);
-                    return !canShare; 
-                });
+                const collision = hSegments.find(seg => 
+                    seg.level === levelId && 
+                    seg.track === p && 
+                    seg.sourceId !== sourceId && // Exclusividad estricta de familia
+                    !(maxX <= seg.minX || minX >= seg.maxX)
+                );
 
                 if (!collision) {
-                    hSegments.push({ level: levelId, track: p, minX: minX, maxX: maxX, sourceId, targetId });
+                    hSegments.push({ level: levelId, track: p, minX: minX, maxX: maxX, sourceId });
                     return p;
                 }
             }
             return 8; 
         }
 
-        function getVTrack(colIdx, startY, endY, travelDirection, sourceId, targetId) {
-            // Descenso Temprano: La prioridad del pasillo cambia según hacia dónde se dirige la flecha
-            let priorities;
-            if (travelDirection === 'right') priorities = [17, 25, 9, 33, 41];
-            else priorities = [33, 25, 41, 17, 9];
-
+        function getVTrack(colIdx, startY, endY, travelDirection, sourceId) {
+            // Descenso temprano basado en dirección LÓGICA (columnas)
+            let priorities = (travelDirection === 'right') ? [17, 25, 9, 33, 41] : [33, 25, 41, 17, 9];
             const minY = Math.min(startY, endY);
             const maxY = Math.max(startY, endY);
 
-            for (let p of priorities) {
-                const collision = vSegments.find(seg => {
-                    if (seg.colIdx !== colIdx || seg.track !== p) return false;
-                    const intersects = !(maxY < seg.minY || minY > seg.maxY);
-                    if (!intersects) return false;
-                    
-                    // FUSIÓN VERTICAL: Comparten cable exacto si nacen de la misma materia
-                    const canShare = (seg.sourceId === sourceId);
-                    return !canShare; 
-                });
+            // FUSIÓN VERTICAL: Intentar usar exactamente el mismo cable que mis hermanas de origen
+            const familySegs = vSegments.filter(seg => seg.colIdx === colIdx && seg.sourceId === sourceId);
+            if (familySegs.length > 0) {
+                const prefTrack = familySegs[0].track;
+                const coll = vSegments.find(seg => 
+                    seg.colIdx === colIdx && 
+                    seg.track === prefTrack && 
+                    seg.sourceId !== sourceId && 
+                    !(maxY <= seg.minY || minY >= seg.maxY)
+                );
+                if (!coll) {
+                    vSegments.push({ colIdx, track: prefTrack, minY, maxY, sourceId });
+                    return prefTrack;
+                }
+            }
 
+            for (let p of priorities) {
+                const collision = vSegments.find(seg => 
+                    seg.colIdx === colIdx && 
+                    seg.track === p && 
+                    seg.sourceId !== sourceId && 
+                    !(maxY <= seg.minY || minY >= seg.maxY)
+                );
                 if (!collision) {
-                    vSegments.push({ colIdx, track: p, minY, maxY, sourceId, targetId });
+                    vSegments.push({ colIdx, track: p, minY, maxY, sourceId });
                     return p;
                 }
             }
@@ -2900,15 +2936,14 @@
                     pathData = `M ${startX} ${yCenter} H ${endX}`; 
                 } else {
                     const dirOffset = isFromLeft ? 15 : -15;
-                    // DETALLE CORREQUISITOS: Reposan exacto sobre el borde del techo (levelTopY)
+                    // Correquisitos anclados absolutamente al borde visual superior
                     const routeY = levelTopY[route.sFrom.level] || (fromPos.y - 12);
                     
                     pathData = `M ${startX} ${yCenter} H ${startX + dirOffset} V ${routeY} H ${endX - dirOffset} V ${yCenter} H ${endX}`;
                 }
             } else {
-                // REGLA 2: TODAS las flechas de salida nacen del centro fusionadas
+                // Troncal Única de Salida (100px)
                 const x1 = fromPos.x + 100;
-                
                 const y1 = fromPos.y + fromCard.offsetHeight; 
                 const y2 = toPos.y; 
 
@@ -2921,33 +2956,34 @@
                     const baseYIn = levelBoundsY[targetLvlIdIn] || (y2 - 32);
 
                     if (ghostCellCol !== -1 && ghostCellCol === route.sTo.col) {
-                        const hTrackTop = getHTrack(route.sFrom.level, x1, toPos.x + 100, false, route.from, route.to);
+                        // Atajo Fantasma Vertical
+                        const hTrackTop = getHTrack(route.sFrom.level, x1, toPos.x + 100, false, route.from);
                         const y_pasillo1 = baseYOut + hTrackTop;
                         const portXIn = getIncomingPort(route, toPos.x + 100);
                         const x2 = toPos.x + portXIn;
                         
                         pathData = `M ${x1} ${y1} V ${y_pasillo1} H ${x2} V ${y2}`;
                     } else {
-                        // Calcula el pasillo exacto por el que va a bajar (xRef)
+                        // Enrutamiento estándar por el pasillo
                         const xRef = 236 + ((route.vColRoute + 1) * 200) + (route.vColRoute * 50); 
                         
-                        // Verifica si tuvo que irse a la derecha o a la izquierda para llegar al pasillo
-                        const travelDir = (x1 < xRef) ? 'right' : 'left';
-                        const trackOffset = getVTrack(route.vColRoute, baseYOut, baseYIn, travelDir, route.from, route.to);
+                        // Direccion lógica infalible
+                        const travelDir = (route.sFrom.col <= route.vColRoute) ? 'right' : 'left';
+                        const trackOffset = getVTrack(route.vColRoute, baseYOut, baseYIn, travelDir, route.from);
                         const laneX = xRef + trackOffset; 
                         
                         const portXIn = getIncomingPort(route, laneX);
                         const x2 = toPos.x + portXIn;
 
                         if (route.lvlDistance === 1) {
-                            const hTrack = getHTrack(route.sFrom.level, x1, x2, false, route.from, route.to); 
+                            const hTrack = getHTrack(route.sFrom.level, x1, x2, false, route.from); 
                             const midY = baseYOut + hTrack; 
                             pathData = `M ${x1} ${y1} V ${midY} H ${x2} V ${y2}`;
                         } else {
-                            const hTrackTop = getHTrack(route.sFrom.level, x1, laneX, false, route.from, route.to);
+                            const hTrackTop = getHTrack(route.sFrom.level, x1, laneX, false, route.from);
                             const y_pasillo1 = baseYOut + hTrackTop; 
                             
-                            const hTrackBot = getHTrack(targetLvlIdIn, laneX, x2, false, route.from, route.to);
+                            const hTrackBot = getHTrack(targetLvlIdIn, laneX, x2, false, route.from);
                             const y_pasillo2 = baseYIn + hTrackBot; 
                             
                             pathData = `M ${x1} ${y1} V ${y_pasillo1} H ${laneX} V ${y_pasillo2} H ${x2} V ${y2}`;
