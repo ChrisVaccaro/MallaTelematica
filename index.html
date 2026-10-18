@@ -2713,126 +2713,135 @@
         
         // --- 1. MAPA ESPACIAL Y LIMITES ---
         const occupied = {}; 
-        const levelBoundsY = {}; // Para Punto 2: Anclaje absoluto
+        const levelBoundsY = {}; 
         let maxCol = 0;
     
         visibleLevels.forEach(l => occupied[l.id] = {});
         
-        // Registrar materias y encontrar el límite absoluto inferior de cada nivel
         state.subjects.forEach(s => {
             if (occupied[s.level] !== undefined) {
                 occupied[s.level][s.col] = true;
                 if (s.col > maxCol) maxCol = s.col;
                 
-                // Punto 2: Buscar el contenedor real del nivel para anclar los carriles
                 if (!levelBoundsY[s.level]) {
                     const cardEl = document.getElementById(`card-${s.id}`);
                     if (cardEl) {
-                        // Busca el contenedor de la cuadrícula o fila
                         const rowEl = cardEl.closest('.level-content-grid') || cardEl.closest('.level-row');
                         if (rowEl) {
                             const rowPos = getRelativePos(rowEl, wrapperEl);
-                            levelBoundsY[s.level] = rowPos.y + rowEl.offsetHeight; // Borde inferior real
+                            levelBoundsY[s.level] = rowPos.y + rowEl.offsetHeight; 
                         }
                     }
                 }
             }
         });
     
-        // --- 2. GESTORES DE CARRILES (LANE MANAGERS) ---
-        const hSegments = []; // Tramos horizontales ocupados (inclusivo de esquinas)
-        const vTracks = {}; // Carriles verticales en pasillos (50px)
-        const ghostCentersOccupied = {}; // Punto 3: Registro de autopistas en huecos
+        // --- 2. PRE-CÁLCULO DE RUTAS GEOGRÁFICAS ---
+        // Determinamos por dónde viajará CADA línea antes de asignar puertos
+        const connRoutes = state.connections.map(c => {
+            const sFrom = state.subjects.find(s => s.id === c.from);
+            const sTo = state.subjects.find(s => s.id === c.to);
+            if(!sFrom || !sTo) return null;
     
-        // Punto 4 y 5: Asignación de carril horizontal con prioridad [16, 0, 8, 24] y verificación inclusiva
-        function getHTrack(levelId, startX, endX, isCoreq, sourceId) {
-            if (isCoreq) {
-                // Regla Correquisitos: Carril 32, compartido si vienen del mismo origen
-                return 32; 
-            }
-    
-            const priorities = [16, 0, 8, 24];
-            const minX = Math.min(startX, endX);
-            const maxX = Math.max(startX, endX);
-    
-            for (let p of priorities) {
-                // Verificar si este carril 'p' en este nivel choca con algún segmento existente
-                const collision = hSegments.find(seg => 
-                    seg.level === levelId && 
-                    seg.track === p && 
-                    !(maxX < seg.minX || minX > seg.maxX) // Punto 5: Inclusivo en la esquina (<= o >= generarían choque en el pixel)
-                );
-                
-                if (!collision) {
-                    // Registrar y retornar
-                    hSegments.push({ level: levelId, track: p, minX: minX, maxX: maxX });
-                    return p;
-                }
-            }
-            return 16; // Fallback si todo se satura
-        }
-    
-        function getVTrack(colIdx) {
-            if (vTracks[colIdx] === undefined) vTracks[colIdx] = 0;
-            const track = vTracks[colIdx] % 5;
-            vTracks[colIdx]++;
-            return 9 + (track * 8); 
-        }
-    
-        // --- 3. GESTOR DE PUERTOS (Punto 1: Prioridad por distancia vertical) ---
-        function assignPorts(cardId, isOutgoing) {
-            const sourceCard = state.subjects.find(s => s.id === cardId);
-            if (!sourceCard) return {};
-            const sourceLvlIdx = state.levels.findIndex(l => l.id === sourceCard.level);
-    
-            const related = state.connections.filter(c => {
-                const sFrom = state.subjects.find(s => s.id === c.from);
-                const sTo = state.subjects.find(s => s.id === c.to);
-                return sFrom && sTo && sFrom.level !== sTo.level && (isOutgoing ? c.from === cardId : c.to === cardId);
-            }).map(c => {
-                const targetCard = state.subjects.find(s => s.id === (isOutgoing ? c.to : c.from));
-                const targetLvlIdx = state.levels.findIndex(l => l.id === targetCard.level);
-                return { 
-                    connId: `${c.from}-${c.to}`, 
-                    targetCol: targetCard.col,
-                    lvlDistance: Math.abs(targetLvlIdx - sourceLvlIdx) // Distancia para desempatar
-                };
-            });
-    
-            // Ordenar primero por columna, luego por cercanía vertical (distancia)
-            related.sort((a, b) => {
-                if (a.targetCol !== b.targetCol) return a.targetCol - b.targetCol;
-                return a.lvlDistance - b.lvlDistance; // Menor distancia primero
-            });
+            const lvlFromIdx = state.levels.findIndex(l => l.id === sFrom.level);
+            const lvlToIdx = state.levels.findIndex(l => l.id === sTo.level);
             
-            const count = related.length;
-            let assigned = [];
-            const sourceCol = sourceCard.col;
+            let isStraight = false;
+            let vColRoute = -1;
     
-            // Distribución inteligente
-            if (count === 1) assigned = [100];
-            else {
-                // Separar las de la misma columna para forzar el centro a la más cercana
-                let ports = [50, 75, 100, 125, 150];
-                related.forEach((r, i) => {
-                    if (r.targetCol === sourceCol && r.lvlDistance === 1 && !assigned.includes(100)) {
-                        assigned[i] = 100;
+            if (sFrom.col === sTo.col) {
+                let empty = true;
+                for (let l = lvlFromIdx + 1; l < lvlToIdx; l++) {
+                    if (occupied[state.levels[l].id] && occupied[state.levels[l].id][sFrom.col]) {
+                        empty = false; break;
                     }
-                });
-                // Rellenar el resto según inclinación
-                let pIdx = 0;
-                related.forEach((r, i) => {
-                    if (!assigned[i]) {
-                        while (assigned.includes(ports[pIdx]) || ports[pIdx] === 100) pIdx++;
-                        if (pIdx < ports.length) assigned[i] = ports[pIdx];
-                        else assigned[i] = 100; // Backup
-                    }
-                });
+                }
+                if (empty) isStraight = true;
             }
     
-            const map = {};
-            related.forEach((r, i) => map[r.connId] = assigned[i] || 100);
-            return map;
+            if (!isStraight) {
+                vColRoute = Math.min(sFrom.col, sTo.col);
+                if (vColRoute >= maxCol && maxCol > 0) vColRoute = maxCol - 1;
+                if (vColRoute < 0) vColRoute = 0;
+            }
+    
+            return { 
+                connId: `${c.from}-${c.to}`, from: c.from, to: c.to, 
+                sFrom, sTo, lvlFromIdx, lvlToIdx, isStraight, vColRoute 
+            };
+        }).filter(Boolean);
+    
+        // --- 3. GESTOR DE PUERTOS MAESTRO (Salidas y Llegadas) ---
+        function assignPorts(cardId, isOutgoing) {
+            const myCard = state.subjects.find(s => s.id === cardId);
+            if (!myCard) return {};
+            const myLvlIdx = state.levels.findIndex(l => l.id === myCard.level);
+    
+            // Filtramos solo prerrequisitos relacionados a esta materia
+            let related = connRoutes.filter(r => r.sFrom.level !== r.sTo.level && (isOutgoing ? r.from === cardId : r.to === cardId));
+    
+            let centers = [];
+            let lefts = [];
+            let rights = [];
+    
+            related.forEach(r => {
+                const targetLvlIdx = isOutgoing ? r.lvlToIdx : r.lvlFromIdx;
+                const lvlDistance = Math.abs(targetLvlIdx - myLvlIdx);
+                
+                // Determinamos de qué lado de la materia está el pasillo que usará la línea
+                let direction = 0; // 0: Centro, -1: Izquierda, 1: Derecha
+                if (r.isStraight) {
+                    direction = 0;
+                } else {
+                    // Si el pasillo es menor a mi columna, la ruta está a mi izquierda
+                    if (r.vColRoute < myCard.col) direction = -1;
+                    else direction = 1; // Pasillo a mi derecha (incluye vColRoute === myCard.col)
+                }
+    
+                const item = { connId: r.connId, lvlDistance, direction };
+                if (direction === 0) centers.push(item);
+                else if (direction === -1) lefts.push(item);
+                else rights.push(item);
+            });
+    
+            // Regla de Oro: Al menos una línea debe usar el puerto central
+            if (centers.length === 0 && related.length > 0) {
+                // Tomamos la más cercana verticalmente y la forzamos al centro
+                let all = [...lefts, ...rights].sort((a, b) => a.lvlDistance - b.lvlDistance);
+                let closest = all[0];
+                centers.push(closest);
+                lefts = lefts.filter(x => x !== closest);
+                rights = rights.filter(x => x !== closest);
+            }
+    
+            // Ordenamos por prioridad vertical (el más cercano gana el centro exacto)
+            centers.sort((a, b) => a.lvlDistance - b.lvlDistance); 
+    
+            let assigned = {};
+            let leftPorts = [75, 50];
+            let rightPorts = [125, 150];
+    
+            // Asignar Centro (Si hay más de uno, desplaza los sobrantes a los lados)
+            centers.forEach((r, i) => {
+                if (i === 0) assigned[r.connId] = 100;
+                else if (i % 2 === 1 && rightPorts.length > 0) assigned[r.connId] = rightPorts.shift();
+                else if (leftPorts.length > 0) assigned[r.connId] = leftPorts.shift();
+                else assigned[r.connId] = 100;
+            });
+    
+            // Asignar Izquierdas
+            lefts.forEach(r => {
+                if (leftPorts.length > 0) assigned[r.connId] = leftPorts.shift();
+                else assigned[r.connId] = 100; // Fallback extremo
+            });
+    
+            // Asignar Derechas
+            rights.forEach(r => {
+                if (rightPorts.length > 0) assigned[r.connId] = rightPorts.shift();
+                else assigned[r.connId] = 100;
+            });
+    
+            return assigned;
         }
     
         const outgoingPorts = {};
@@ -2842,128 +2851,129 @@
             incomingPorts[s.id] = assignPorts(s.id, false);
         });
     
-        // --- 4. TRAZADO DE RUTAS ---
-        state.connections.forEach((conn, index) => {
-            const fromCard = document.getElementById(`card-${conn.from}`); 
-            const toCard = document.getElementById(`card-${conn.to}`); 
-            if (!fromCard || !toCard) return;
-            
-            const subjFrom = state.subjects.find(s => s.id === conn.from); 
-            const subjTo = state.subjects.find(s => s.id === conn.to);
-            const levelFromIdx = state.levels.findIndex(l => l.id === subjFrom.level); 
-            const levelToIdx = state.levels.findIndex(l => l.id === subjTo.level);
-            const levelDistance = Math.abs(levelToIdx - levelFromIdx); 
-            const isSameLevel = (levelDistance === 0);
+        // --- 4. GESTORES DE CARRILES (Lane Managers) ---
+        const hSegments = []; 
+        const vTracks = {}; 
+        const ghostCentersOccupied = {}; 
     
+        function getHTrack(levelId, startX, endX, isCoreq) {
+            if (isCoreq) return 32; // Correquisitos siempre usan su espacio reservado
+    
+            const priorities = [16, 0, 8, 24];
+            const minX = Math.min(startX, endX);
+            const maxX = Math.max(startX, endX);
+    
+            for (let p of priorities) {
+                // Verificación Inclusiva para evitar ilusiones ópticas en las esquinas
+                const collision = hSegments.find(seg => 
+                    seg.level === levelId && 
+                    seg.track === p && 
+                    !(maxX < seg.minX || minX > seg.maxX) 
+                );
+                if (!collision) {
+                    hSegments.push({ level: levelId, track: p, minX: minX, maxX: maxX });
+                    return p;
+                }
+            }
+            return 16; 
+        }
+    
+        function getVTrack(colIdx) {
+            if (vTracks[colIdx] === undefined) vTracks[colIdx] = 0;
+            const track = vTracks[colIdx] % 5;
+            vTracks[colIdx]++;
+            return 9 + (track * 8); 
+        }
+    
+        // --- 5. TRAZADO FINAL DE RUTAS ---
+        connRoutes.forEach((route, index) => {
+            const fromCard = document.getElementById(`card-${route.from}`); 
+            const toCard = document.getElementById(`card-${route.to}`); 
+            if (!fromCard || !toCard) return;
+    
+            const isSameLevel = (route.lvlDistance === 0);
             const fromPos = getRelativePos(fromCard, wrapperEl);
             const toPos = getRelativePos(toCard, wrapperEl);
-            const connId = `${conn.from}-${conn.to}`;
             let pathData = "";
     
-            // Verificaciones de Atajos Fantasma
+            // Detección de atajos por celdas vacías (Fantasmas)
             let canCrossHorizontal = false;
-            if (isSameLevel && Math.abs(subjFrom.col - subjTo.col) > 1) {
-                const minCol = Math.min(subjFrom.col, subjTo.col);
-                const maxColIter = Math.max(subjFrom.col, subjTo.col);
+            if (isSameLevel && Math.abs(route.sFrom.col - route.sTo.col) > 1) {
+                const minCol = Math.min(route.sFrom.col, route.sTo.col);
+                const maxColIter = Math.max(route.sFrom.col, route.sTo.col);
                 let empty = true;
                 for (let c = minCol + 1; c < maxColIter; c++) {
-                    if (occupied[subjFrom.level][c]) { empty = false; break; }
+                    if (occupied[route.sFrom.level][c]) { empty = false; break; }
                 }
                 canCrossHorizontal = empty;
             }
     
             let ghostCellCol = -1;
-            // Punto 3: Atajo vertical fantasma si está vacío y no usado por autopista
-            if (subjFrom.col !== subjTo.col && levelDistance > 1) {
-                // Evaluar columnas intermedias posibles (solo un chequeo básico para este ejemplo)
-                const checkCol = subjTo.col; // Probar bajar directo sobre el destino
+            if (!isSameLevel && route.sFrom.col !== route.sTo.col && route.lvlDistance > 1) {
+                const checkCol = route.sTo.col; 
                 let empty = true;
-                for (let l = levelFromIdx + 1; l < levelToIdx; l++) {
-                    const lvlId = state.levels[l].id;
-                    if (occupied[lvlId] && occupied[lvlId][checkCol]) { empty = false; break; }
+                for (let l = route.lvlFromIdx + 1; l < route.lvlToIdx; l++) {
+                    if (occupied[state.levels[l].id] && occupied[state.levels[l].id][checkCol]) { empty = false; break; }
                 }
-                if (empty && !ghostCentersOccupied[`${checkCol}-${levelFromIdx}-${levelToIdx}`]) {
+                if (empty && !ghostCentersOccupied[`${checkCol}-${route.lvlFromIdx}-${route.lvlToIdx}`]) {
                     ghostCellCol = checkCol;
-                    // Ocupamos este centro fantasma para que nadie más baje por aquí
-                    ghostCentersOccupied[`${checkCol}-${levelFromIdx}-${levelToIdx}`] = true;
+                    ghostCentersOccupied[`${checkCol}-${route.lvlFromIdx}-${route.lvlToIdx}`] = true;
                 }
             }
     
-            // CORREQUISITOS
             if (isSameLevel) {
-                const isFromLeft = subjFrom.col < subjTo.col;
+                // Lógica de Correquisitos
+                const isFromLeft = route.sFrom.col < route.sTo.col;
                 const startX = isFromLeft ? (fromPos.x + fromCard.offsetWidth) : fromPos.x;
                 const endX = isFromLeft ? toPos.x : (toPos.x + toCard.offsetWidth);
                 const yCenter = fromPos.y + (fromCard.offsetHeight / 2);
     
-                if (Math.abs(subjFrom.col - subjTo.col) === 1 || canCrossHorizontal) {
+                if (Math.abs(route.sFrom.col - route.sTo.col) === 1 || canCrossHorizontal) {
                     pathData = `M ${startX} ${yCenter} H ${endX}`; 
                 } else {
                     const dirOffset = isFromLeft ? 15 : -15;
-                    const hTrack = getHTrack(subjFrom.level, startX, endX, true, conn.from); // Usa carril 32
-                    const roofOffset = (levelFromIdx === 0) ? (10 + (index%3)*4) : hTrack; 
-                    
-                    // Anclaje al techo
-                    const baseY = levelBoundsY[state.levels[Math.max(0, levelFromIdx - 1)].id] || (fromPos.y - 32);
-                    const routeY = baseY + roofOffset;
+                    // Anclaje Absoluto al borde del nivel
+                    const routeY = route.lvlFromIdx === 0 
+                        ? (fromPos.y - 20) 
+                        : levelBoundsY[state.levels[route.lvlFromIdx - 1].id];
                     
                     pathData = `M ${startX} ${yCenter} H ${startX + dirOffset} V ${routeY} H ${endX - dirOffset} V ${yCenter} H ${endX}`;
                 }
-            } 
-            // PRERREQUISITOS
-            else {
-                const portXOut = outgoingPorts[conn.from][connId] || 100;
-                const portXIn = incomingPorts[conn.to][connId] || 100;
+            } else {
+                // Lógica de Prerrequisitos
+                const portXOut = outgoingPorts[route.from][route.connId] || 100;
+                const portXIn = incomingPorts[route.to][route.connId] || 100;
                 const x1 = fromPos.x + portXOut;
                 const x2 = toPos.x + portXIn;
                 
                 const y1 = fromPos.y + fromCard.offsetHeight; 
                 const y2 = toPos.y; 
     
-                // Autopista vertical directa (misma columna y limpia)
-                let directVertical = false;
-                if (subjFrom.col === subjTo.col) {
-                    let empty = true;
-                    for (let l = levelFromIdx + 1; l < levelToIdx; l++) {
-                        if (occupied[state.levels[l].id][subjFrom.col]) empty = false;
-                    }
-                    if (empty) directVertical = true;
-                }
-    
-                if (directVertical) {
-                    // Registramos la autopista fantasma si salta niveles
-                    if (levelDistance > 1) ghostCentersOccupied[`${subjFrom.col}-${levelFromIdx}-${levelToIdx}`] = true;
+                if (route.isStraight) {
+                    if (route.lvlDistance > 1) ghostCentersOccupied[`${route.sFrom.col}-${route.lvlFromIdx}-${route.lvlToIdx}`] = true;
                     pathData = `M ${x1} ${y1} V ${y2}`;
                 } else {
-                    // Diagonales y saltos con obstáculos
-                    
-                    // Punto 2: Base anclada al grid real
-                    const baseYOut = levelBoundsY[subjFrom.level] || (y1 + 16);
-                    const baseYIn = levelBoundsY[state.levels[levelToIdx - 1]?.id] || (y2 - 32);
+                    // Anclaje al borde real del grid inferior
+                    const baseYOut = levelBoundsY[route.sFrom.level] || (y1 + 16);
+                    const baseYIn = levelBoundsY[state.levels[route.lvlToIdx - 1]?.id] || (y2 - 32);
     
-                    if (ghostCellCol !== -1 && ghostCellCol === subjTo.col) {
-                        // Punto 3: Bajar directo usando la celda destino vacía
-                        const hTrackTop = getHTrack(subjFrom.level, x1, x2, false, conn.from);
+                    if (ghostCellCol !== -1 && ghostCellCol === route.sTo.col) {
+                        const hTrackTop = getHTrack(route.sFrom.level, x1, x2, false);
                         const y_pasillo1 = baseYOut + hTrackTop;
                         pathData = `M ${x1} ${y1} V ${y_pasillo1} H ${x2} V ${y2}`;
                     } else {
-                        // Enrutamiento estándar por pasillos laterales
-                        let vCol = Math.min(subjFrom.col, subjTo.col);
-                        if (vCol >= maxCol && maxCol > 0) vCol = maxCol - 1; 
-                        if (vCol < 0) vCol = 0; 
-                        
-                        const xRef = 236 + ((vCol + 1) * 200) + (vCol * 50); 
-                        const laneX = xRef + getVTrack(vCol); 
+                        const xRef = 236 + ((route.vColRoute + 1) * 200) + (route.vColRoute * 50); 
+                        const laneX = xRef + getVTrack(route.vColRoute); 
     
-                        if (levelDistance === 1) {
-                            const hTrack = getHTrack(subjFrom.level, x1, x2, false, conn.from); 
+                        if (route.lvlDistance === 1) {
+                            const hTrack = getHTrack(route.sFrom.level, x1, x2, false); 
                             const midY = baseYOut + hTrack; 
                             pathData = `M ${x1} ${y1} V ${midY} H ${x2} V ${y2}`;
                         } else {
-                            const hTrackTop = getHTrack(subjFrom.level, x1, laneX, false, conn.from);
+                            const hTrackTop = getHTrack(route.sFrom.level, x1, laneX, false);
                             const y_pasillo1 = baseYOut + hTrackTop; 
                             
-                            const hTrackBot = getHTrack(state.levels[levelToIdx-1].id, laneX, x2, false, conn.from);
+                            const hTrackBot = getHTrack(state.levels[route.lvlToIdx - 1].id, laneX, x2, false);
                             const y_pasillo2 = baseYIn + hTrackBot; 
                             
                             pathData = `M ${x1} ${y1} V ${y_pasillo1} H ${laneX} V ${y_pasillo2} H ${x2} V ${y2}`;
@@ -2977,14 +2987,14 @@
             path.setAttribute('class', `connection drawn ${isSameLevel ? 'corequisite' : ''}`); 
             path.style.strokeLinejoin = "round"; 
             path.style.strokeLinecap = "round"; 
-            path.dataset.from = conn.from; 
-            path.dataset.to = conn.to;
+            path.dataset.from = route.from; 
+            path.dataset.to = route.to;
             path.setAttribute('marker-end', isSameLevel ? 'url(#arrowhead-coreq)' : 'url(#arrowhead)');
             
             path.onmouseenter = (e) => { const t = document.getElementById('conn-delete-tooltip'); t.classList.add('visible'); t.style.left = (e.clientX+15)+'px'; t.style.top = (e.clientY+15)+'px'; };
             path.onmousemove = (e) => { const t = document.getElementById('conn-delete-tooltip'); t.style.left = (e.clientX+15)+'px'; t.style.top = (e.clientY+15)+'px'; };
             path.onmouseleave = () => { document.getElementById('conn-delete-tooltip').classList.remove('visible'); };
-            path.ondblclick = (e) => { e.stopPropagation(); document.getElementById('conn-delete-tooltip').classList.remove('visible'); openDeleteConnModal(conn.from, conn.to, subjFrom.name, subjTo.name); };
+            path.ondblclick = (e) => { e.stopPropagation(); document.getElementById('conn-delete-tooltip').classList.remove('visible'); openDeleteConnModal(route.from, route.to, route.sFrom.name, route.sTo.name); };
             svg.appendChild(path);
         });
         
