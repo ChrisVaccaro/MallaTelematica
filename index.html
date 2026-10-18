@@ -2704,6 +2704,7 @@
         svg.style.width = '100%'; 
         svg.style.height = '100%';
         if (ghostSvg) { 
+            ghostSvg.innerHTML = ''; // Limpiamos para el modo depuración
             ghostSvg.style.width = '100%'; 
             ghostSvg.style.height = '100%'; 
         }
@@ -2775,6 +2776,7 @@
             };
         }).filter(Boolean);
 
+        // Orden de prioridad para prevenir empalmes
         connRoutes.sort((a, b) => b.lvlFromIdx - a.lvlFromIdx);
 
         // --- 3. GESTOR DE LLEGADAS Y SOMBRAS ---
@@ -2809,8 +2811,8 @@
             
             return 100; 
         }
-        
-        // FUNCIÓN AUXILIAR: Obtener inicio dinámico del pasillo (Adaptable al CSS)
+
+        // FUNCIÓN AUXILIAR: Obtener inicio dinámico del pasillo (INTACTA)
         function getDynamicGapX(colIdx) {
             let xRef = 0;
             const refSubj = state.subjects.find(s => s.col === colIdx);
@@ -2826,8 +2828,8 @@
         }
 
         // --- 4. LA NUEVA MATRIZ DE CARRILES (GRID STATE) ---
-        const hSegments = []; 
-        const vSegments = []; 
+        const hSegments = []; // { level, track, minX, maxX, sourceId, y }
+        const vSegments = []; // { colIdx, track, minY, maxY, sourceId, x }
         const ghostCentersOccupied = {}; 
         const coreqOccupied = {}; 
 
@@ -2903,7 +2905,6 @@
         }
 
         // --- 5. GENERADOR DE SALTOS (ARC HOPS) ---
-        // IGNORA intersecciones de su propia materia (anti self-arcing)
         function drawHorizontalWithHops(startX, endX, y, currentSourceId) {
             const minX = Math.min(startX, endX);
             const maxX = Math.max(startX, endX);
@@ -3020,7 +3021,6 @@
                         const hPath = drawHorizontalWithHops(x1, x2, y_pasillo1, route.from);
                         pathData = `M ${x1} ${y1} V ${y_pasillo1} ${hPath} V ${y2}`;
                     } else {
-                        // Uso de Pasillo Dinámico
                         const xRef = getDynamicGapX(route.vColRoute); 
                         const travelDir = (route.sFrom.col <= route.vColRoute) ? 'right' : 'left';
                         const trackOffset = getVTrack(route.vColRoute, baseYOut, baseYIn, travelDir, route.from, xRef);
@@ -3067,6 +3067,31 @@
             svg.appendChild(path);
         });
         
+        // --- 7. MODO DEPURACIÓN VISUAL (GHOST LAYER) ---
+        if (ghostSvg) {
+            hSegments.forEach(seg => {
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                line.setAttribute('d', `M ${seg.minX} ${seg.y} L ${seg.maxX} ${seg.y}`);
+                line.style.stroke = '#cbd5e1'; // Gris muy suave
+                line.style.strokeWidth = '1.5';
+                line.style.strokeDasharray = '4, 4';
+                line.style.fill = 'none';
+                line.style.pointerEvents = 'none';
+                ghostSvg.appendChild(line);
+            });
+
+            vSegments.forEach(seg => {
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                line.setAttribute('d', `M ${seg.x} ${seg.minY} L ${seg.x} ${seg.maxY}`);
+                line.style.stroke = '#cbd5e1'; // Gris muy suave
+                line.style.strokeWidth = '1.5';
+                line.style.strokeDasharray = '4, 4';
+                line.style.fill = 'none';
+                line.style.pointerEvents = 'none';
+                ghostSvg.appendChild(line);
+            });
+        }
+
         if (window.pinnedSubjectId) { highlightConnections(window.pinnedSubjectId); }
     }
 
