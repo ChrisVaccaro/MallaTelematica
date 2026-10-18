@@ -2704,7 +2704,7 @@
         svg.style.width = '100%'; 
         svg.style.height = '100%';
         if (ghostSvg) { 
-            ghostSvg.innerHTML = ''; // Limpiamos el canvas de depuración en cada render
+            ghostSvg.innerHTML = ''; 
             ghostSvg.style.width = '100%'; 
             ghostSvg.style.height = '100%'; 
         }
@@ -2794,19 +2794,16 @@
 
         connRoutes.sort((a, b) => b.lvlFromIdx - a.lvlFromIdx);
 
-        // --- 3. GESTOR DE LLEGADAS Y SOMBRAS ---
+        // --- 3. GESTOR DE PUERTOS Y GAPS DINÁMICOS ---
         function getIncomingPort(route, laneX) {
             if (route.isStraight) return 100; 
-
             const destHasStraightIn = connRoutes.some(r => r.to === route.to && r.isStraight);
             const sourceHasStraightOut = connRoutes.some(r => r.from === route.from && r.isStraight);
-
             let shadowBlocked = false;
             
             for (let l = route.lvlToIdx - 1; l >= 0; l--) {
                 const levelAboveId = state.levels[l].id;
                 const subjAbove = state.subjects.find(s => s.level === levelAboveId && s.col === route.sTo.col);
-                
                 if (subjAbove) {
                     if (subjAbove.id !== route.from) {
                         const aboveHasOut = connRoutes.some(r => r.from === subjAbove.id);
@@ -2823,7 +2820,6 @@
                 if (laneX < targetCenterX) return 75;  
                 else return 125; 
             }
-            
             return 100; 
         }
         
@@ -2831,27 +2827,43 @@
             const refSubj = state.subjects.find(s => s.col === colIdx);
             if (refSubj) {
                 const refCard = document.getElementById(`card-${refSubj.id}`);
-                if (refCard) {
-                    return getZoomedPos(refCard).right;
-                }
+                if (refCard) return getZoomedPos(refCard).right;
             }
-            // Fallback de seguridad
             return 236 + (colIdx * 250) + 200;
+        }
+
+        function getCardLeftX(colIdx) {
+            const refSubj = state.subjects.find(s => s.col === colIdx);
+            if (refSubj) {
+                const refCard = document.getElementById(`card-${refSubj.id}`);
+                if (refCard) return getZoomedPos(refCard).x;
+            }
+            return getDynamicGapX(colIdx) - 200;
+        }
+
+        function getGapMetrics(bottomLevelId) {
+            const bottomLvlIdx = state.levels.findIndex(l => l.id === bottomLevelId);
+            const gapBottom = levelTopY[bottomLevelId] || 0;
+            let gapTop = gapBottom - 32; 
+            if (bottomLvlIdx > 0) {
+                const topLevelId = state.levels[bottomLvlIdx - 1].id;
+                if (levelBoundsY[topLevelId]) gapTop = levelBoundsY[topLevelId];
+            }
+            return { gapTop, gapBottom, step: (gapBottom - gapTop) / 4 };
         }
 
         // --- 4. LA MATRIZ DE CARRILES ESTRICTA ---
         const hSegments = []; 
         const vSegments = []; 
         const ghostCentersOccupied = {}; 
-        const coreqOccupied = {}; 
 
-        function getHTrack(levelId, startX, endX, sourceId, exactYBase) {
-            const priorities = [8, 16, 24]; // Solo los 3 carriles centrales permitidos para prerrequisitos
+        function getHTrack(gapId, startX, endX, sourceId, gapMetrics, allowedIndices) {
+            const { gapTop, step } = gapMetrics;
             const minX = Math.min(startX, endX);
             const maxX = Math.max(startX, endX);
 
-            const familySegs = hSegments.filter(seg => seg.level === levelId && seg.sourceId === sourceId);
-            if (familySegs.length > 0) return familySegs[0].track;
+            const familySegs = hSegments.filter(seg => seg.gapId === gapId && seg.sourceId === sourceId);
+            if (familySegs.length > 0) return familySegs[0].y;
 
             let familySpanMinX = minX;
             let familySpanMaxX = maxX;
@@ -2862,7 +2874,7 @@
                 const tCard = document.getElementById(`card-${fr.to}`);
                 if (fCard && tCard) {
                     const startPortX = getZoomedPos(fCard).x + 100;
-                    let endPortX = (fr.lvlDistance === 1) ? getZoomedPos(tCard).x + 100 : getDynamicGapX(fr.vColRoute);
+                    let endPortX = (fr.lvlDistance === 1 || fr.isStraight) ? getZoomedPos(tCard).x + 100 : getDynamicGapX(fr.vColRoute);
                     familySpanMinX = Math.min(familySpanMinX, startPortX, endPortX);
                     familySpanMaxX = Math.max(familySpanMaxX, startPortX, endPortX);
                 }
@@ -2871,22 +2883,24 @@
             familySpanMinX -= 5;
             familySpanMaxX += 5;
 
-            for (let p of priorities) {
-                const collision = hSegments.find(seg => seg.level === levelId && seg.track === p && !(familySpanMaxX < seg.minX || familySpanMinX > seg.maxX));
+            for (let idx of allowedIndices) {
+                let pY = gapTop + (idx * step);
+                const collision = hSegments.find(seg => seg.gapId === gapId && Math.abs(seg.y - pY) < 1 && !(familySpanMaxX <= seg.minX || familySpanMinX >= seg.maxX));
                 if (!collision) {
-                    hSegments.push({ level: levelId, track: p, minX: familySpanMinX, maxX: familySpanMaxX, sourceId, y: exactYBase + p });
-                    return p;
+                    hSegments.push({ gapId, y: pY, minX: familySpanMinX, maxX: familySpanMaxX, sourceId, trackIdx: idx });
+                    return pY;
                 }
             }
 
-            for (let p of priorities) {
-                const collision = hSegments.find(seg => seg.level === levelId && seg.track === p && !(maxX < seg.minX || minX > seg.maxX));
+            for (let idx of allowedIndices) {
+                let pY = gapTop + (idx * step);
+                const collision = hSegments.find(seg => seg.gapId === gapId && Math.abs(seg.y - pY) < 1 && !(maxX <= seg.minX || minX >= seg.maxX));
                 if (!collision) {
-                    hSegments.push({ level: levelId, track: p, minX: minX, maxX: maxX, sourceId, y: exactYBase + p });
-                    return p;
+                    hSegments.push({ gapId, y: pY, minX: minX, maxX: maxX, sourceId, trackIdx: idx });
+                    return pY;
                 }
             }
-            return 8; // Fallback extremo
+            return gapTop + (allowedIndices[0] * step); 
         }
 
         function getVTrack(colIdx, startY, endY, travelDirection, sourceId, exactXBase) {
@@ -2914,7 +2928,7 @@
             return priorities[0]; 
         }
 
-        // --- 5. PASADA 1: CALCULAR RUTAS Y REGISTRAR EL 100% DE LÍNEAS VERTICALES ---
+        // --- 5. PASADA 1: CALCULAR RUTAS Y REGISTRAR LÍNEAS VERTICALES ---
         const computedRoutes = [];
         const allVerticalLines = [];
 
@@ -2970,26 +2984,15 @@
                     routeInfo.startX = startX; routeInfo.endX = endX; routeInfo.yCenter = yCenter;
                 } else {
                     const dirOffset = isFromLeft ? 9 : -9;
-                    const levelAboveId = route.lvlFromIdx > 0 ? state.levels[route.lvlFromIdx - 1].id : null;
-                    const gapBaseY = levelAboveId ? levelBoundsY[levelAboveId] : (levelTopY[route.sFrom.level] - 32);
+                    const gapMetrics = getGapMetrics(route.sFrom.level);
                     
-                    if (!coreqOccupied[route.sFrom.level]) coreqOccupied[route.sFrom.level] = [];
-                    let cTrackOffset = 32; // Techo de la tarjeta de abajo
-                    
-                    const minCol = Math.min(route.sFrom.col, route.sTo.col);
-                    const maxColIter = Math.max(route.sFrom.col, route.sTo.col);
-                    
-                    const hasCollision = coreqOccupied[route.sFrom.level].some(c => !(maxColIter < c.min || minCol > c.max) && c.sourceId !== route.from);
-                    if (hasCollision) cTrackOffset = 0; // Subir al techo del pasillo (0) si hay colisión múltiple
-                    coreqOccupied[route.sFrom.level].push({ min: minCol, max: maxColIter, sourceId: route.from });
-                    
-                    const routeY = gapBaseY + cTrackOffset;
+                    // Correquisitos exigen el carril 4 (bottom) o 3 (si hay choque)
+                    const routeY = getHTrack('gap-'+route.sFrom.level, startX + dirOffset, endX - dirOffset, route.from, gapMetrics, [4, 3]);
                     
                     routeInfo.type = 'coreq-roof';
                     routeInfo.startX = startX; routeInfo.endX = endX; routeInfo.yCenter = yCenter;
                     routeInfo.dirOffset = dirOffset; routeInfo.routeY = routeY;
 
-                    // Registro para que los demás puedan saltar sobre los brazos del correquisito
                     addVLine(startX + dirOffset, yCenter, routeY, route.from);
                     addVLine(endX - dirOffset, routeY, yCenter, route.from);
                 }
@@ -3006,13 +3009,11 @@
                     routeInfo.x1 = x1; routeInfo.y1 = y1; routeInfo.y2 = y2;
                     addVLine(x1, y1, y2, route.from);
                 } else {
-                    const baseYOut = levelBoundsY[route.sFrom.level] || (y1 + 16);
-                    const targetLvlIdIn = route.lvlToIdx > 0 ? state.levels[route.lvlToIdx - 1].id : route.sTo.level;
-                    const baseYIn = levelBoundsY[targetLvlIdIn] || (y2 - 32);
-
                     if (ghostCellCol !== -1 && ghostCellCol === route.sTo.col) {
-                        const hTrackTop = getHTrack(route.sFrom.level, x1, toPos.x + 100, route.from, baseYOut);
-                        const y_pasillo1 = baseYOut + hTrackTop;
+                        const gapIdTop = state.levels[route.lvlFromIdx + 1].id;
+                        const gapMetricsTop = getGapMetrics(gapIdTop);
+                        const y_pasillo1 = getHTrack('gap-'+gapIdTop, x1, toPos.x + 100, route.from, gapMetricsTop, [1, 2, 3]);
+                        
                         const portXIn = getIncomingPort(route, toPos.x + 100);
                         const x2 = toPos.x + portXIn;
                         
@@ -3023,16 +3024,22 @@
                         addVLine(x1, y1, y_pasillo1, route.from);
                         addVLine(x2, y_pasillo1, y2, route.from);
                     } else {
+                        const gapIdTop = state.levels[route.lvlFromIdx + 1].id;
+                        const gapMetricsTop = getGapMetrics(gapIdTop);
+                        
+                        const gapIdBot = route.sTo.level;
+                        const gapMetricsBot = getGapMetrics(gapIdBot);
+
                         const xRef = getDynamicGapX(route.vColRoute); 
                         const travelDir = (route.sFrom.col <= route.vColRoute) ? 'right' : 'left';
-                        const trackOffset = getVTrack(route.vColRoute, baseYOut, baseYIn, travelDir, route.from, xRef);
+                        const trackOffset = getVTrack(route.vColRoute, gapMetricsTop.gapTop, gapMetricsBot.gapBottom, travelDir, route.from, xRef);
                         const laneX = xRef + trackOffset; 
+                        
                         const portXIn = getIncomingPort(route, laneX);
                         const x2 = toPos.x + portXIn;
 
                         if (route.lvlDistance === 1) {
-                            const hTrack = getHTrack(route.sFrom.level, x1, x2, route.from, baseYOut); 
-                            const midY = baseYOut + hTrack; 
+                            const midY = getHTrack('gap-'+gapIdBot, x1, x2, route.from, gapMetricsBot, [1, 2, 3]); 
                             
                             routeInfo.type = 'req-d1';
                             routeInfo.x1 = x1; routeInfo.y1 = y1; routeInfo.x2 = x2; routeInfo.y2 = y2;
@@ -3041,11 +3048,8 @@
                             addVLine(x1, y1, midY, route.from);
                             addVLine(x2, midY, y2, route.from);
                         } else {
-                            const hTrackTop = getHTrack(route.sFrom.level, x1, laneX, route.from, baseYOut);
-                            const y_pasillo1 = baseYOut + hTrackTop; 
-                            
-                            const hTrackBot = getHTrack(targetLvlIdIn, laneX, x2, route.from, baseYIn);
-                            const y_pasillo2 = baseYIn + hTrackBot; 
+                            const y_pasillo1 = getHTrack('gap-'+gapIdTop, x1, laneX, route.from, gapMetricsTop, [1, 2, 3]); 
+                            const y_pasillo2 = getHTrack('gap-'+gapIdBot, laneX, x2, route.from, gapMetricsBot, [1, 2, 3]); 
                             
                             routeInfo.type = 'req-long';
                             routeInfo.x1 = x1; routeInfo.y1 = y1; routeInfo.x2 = x2; routeInfo.y2 = y2;
@@ -3068,7 +3072,6 @@
             const isGoingRight = startX < endX;
             const hopRadius = 5; 
             
-            // Usamos la memoria total (allVerticalLines) ajustando +- 0.5px para evitar fallos de colisión flotante
             const intersections = allVerticalLines
                 .filter(seg => seg.minY <= y + 0.5 && seg.maxY >= y - 0.5 && seg.x > (minX + hopRadius) && seg.x < (maxX - hopRadius) && seg.sourceId !== currentSourceId)
                 .map(seg => seg.x)
@@ -3136,56 +3139,61 @@
             const mapWidth = Math.max(3000, wrapperEl.scrollWidth / z);
             const mapHeight = Math.max(3000, wrapperEl.scrollHeight / z);
             
-            // Rejilla teórica Horizontal (Pasillos 0, 8, 16, 24, 32)
-            visibleLevels.forEach(lvl => {
-                const baseY = levelBoundsY[lvl.id];
-                if (baseY) {
-                    [0, 8, 16, 24, 32].forEach(p => {
+            // Rejilla teórica Horizontal Dinámica
+            visibleLevels.forEach((lvl, idx) => {
+                if (idx === 0) {
+                    const firstGap = getGapMetrics(lvl.id);
+                    [0, 1, 2, 3, 4].forEach(tIdx => {
+                        const pY = firstGap.gapTop + (tIdx * firstGap.step);
                         const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                        line.setAttribute('d', `M 0 ${baseY + p} L ${mapWidth} ${baseY + p}`);
-                        line.style.stroke = '#e2e8f0'; 
-                        line.style.strokeWidth = '1';
-                        line.style.strokeDasharray = '2, 4';
-                        line.style.fill = 'none';
-                        line.style.pointerEvents = 'none';
+                        line.setAttribute('d', `M 0 ${pY} L ${mapWidth} ${pY}`);
+                        line.style.stroke = '#e2e8f0'; line.style.strokeWidth = '1'; line.style.strokeDasharray = '2, 4'; line.style.fill = 'none'; line.style.pointerEvents = 'none';
                         ghostSvg.appendChild(line);
                     });
                 }
+                const gapMetrics = getGapMetrics(lvl.id);
+                [0, 1, 2, 3, 4].forEach(tIdx => {
+                    const pY = gapMetrics.gapTop + (tIdx * gapMetrics.step);
+                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    line.setAttribute('d', `M 0 ${pY} L ${mapWidth} ${pY}`);
+                    line.style.stroke = '#e2e8f0'; line.style.strokeWidth = '1'; line.style.strokeDasharray = '2, 4'; line.style.fill = 'none'; line.style.pointerEvents = 'none';
+                    ghostSvg.appendChild(line);
+                });
             });
 
-            // Rejilla teórica Vertical (Autopista Completa 9, 17, 25, 33, 41)
+            // Rejilla teórica Vertical (Autopista + Puertos)
             for (let c = 0; c < NUM_COLUMNS; c++) {
                 const xRef = getDynamicGapX(c);
+                const colX = getCardLeftX(c); 
+
+                // Pasillos
                 [9, 17, 25, 33, 41].forEach(p => {
                     const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                     line.setAttribute('d', `M ${xRef + p} 0 L ${xRef + p} ${mapHeight}`);
-                    line.style.stroke = '#e2e8f0'; 
-                    line.style.strokeWidth = '1';
-                    line.style.strokeDasharray = '2, 4';
-                    line.style.fill = 'none';
-                    line.style.pointerEvents = 'none';
+                    line.style.stroke = '#e2e8f0'; line.style.strokeWidth = '1'; line.style.strokeDasharray = '2, 4'; line.style.fill = 'none'; line.style.pointerEvents = 'none';
+                    ghostSvg.appendChild(line);
+                });
+
+                // Puertos de Tarjeta (Azul)
+                [75, 100, 125].forEach(p => {
+                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    line.setAttribute('d', `M ${colX + p} 0 L ${colX + p} ${mapHeight}`);
+                    line.style.stroke = '#bfdbfe'; line.style.strokeWidth = '1'; line.style.strokeDasharray = '2, 4'; line.style.fill = 'none'; line.style.pointerEvents = 'none';
                     ghostSvg.appendChild(line);
                 });
             }
 
-            // Segmentos ocupados reales (Trazos continuos oscuros)
+            // Segmentos ocupados reales
             hSegments.forEach(seg => {
                 const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 line.setAttribute('d', `M ${seg.minX} ${seg.y} L ${seg.maxX} ${seg.y}`);
-                line.style.stroke = '#94a3b8'; 
-                line.style.strokeWidth = '2';
-                line.style.fill = 'none';
-                line.style.pointerEvents = 'none';
+                line.style.stroke = '#94a3b8'; line.style.strokeWidth = '2'; line.style.fill = 'none'; line.style.pointerEvents = 'none';
                 ghostSvg.appendChild(line);
             });
-
             vSegments.forEach(seg => {
                 const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 line.setAttribute('d', `M ${seg.x} ${seg.minY} L ${seg.x} ${seg.maxY}`);
-                line.style.stroke = '#94a3b8';
-                line.style.strokeWidth = '2';
-                line.style.fill = 'none';
-                line.style.pointerEvents = 'none';
+                line.style.stroke = '#94a3b8'; line.style.strokeWidth = '2'; line.style.fill = 'none'; line.style.pointerEvents = 'none';
                 ghostSvg.appendChild(line);
             });
         }
