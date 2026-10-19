@@ -2802,7 +2802,12 @@
             };
         }).filter(Boolean);
 
-        connRoutes.sort((a, b) => b.lvlFromIdx - a.lvlFromIdx);
+        // LA BARREDORA DE NIEVE: Ordenamos por nivel de origen (de abajo hacia arriba).
+        // Si nacen del mismo nivel, procesamos primero la ruta más larga (mayor distancia).
+        connRoutes.sort((a, b) => {
+            if (b.lvlFromIdx !== a.lvlFromIdx) return b.lvlFromIdx - a.lvlFromIdx;
+            return b.lvlDistance - a.lvlDistance; 
+        });
 
         function getDynamicCardX(colIdx) {
             const refSubj = state.subjects.find(s => s.col === colIdx);
@@ -3115,7 +3120,6 @@
             const hopRadius = 5; 
             
             const intersections = allVerticalLines
-                // Protegemos el codo con 1px extra (hopRadius + 1 = 6px) de margen
                 .filter(seg => seg.minY <= y + 0.5 && seg.maxY >= y - 0.5 && seg.x >= (minX + hopRadius + 1) && seg.x <= (maxX - hopRadius - 1) && seg.sourceId !== currentSourceId)
                 .map(seg => seg.x)
                 .sort((a, b) => isGoingRight ? a - b : b - a);
@@ -3124,7 +3128,6 @@
             let currentX = startX;
 
             intersections.forEach(ix => {
-                // Reducimos el colchón de hopRadius * 2 (10px) a hopRadius + 1 (6px)
                 if (Math.abs(currentX - ix) >= hopRadius + 1) {
                     const startHopX = isGoingRight ? ix - hopRadius : ix + hopRadius;
                     const endHopX = isGoingRight ? ix + hopRadius : ix - hopRadius;
