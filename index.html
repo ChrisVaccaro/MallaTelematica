@@ -1619,7 +1619,9 @@
         // 3. Restaurar zoom a 100% temporalmente para asegurar buena calidad y alineación
         const originalZoom = currentZoom;
         currentZoom = 1.0;
-        applyZoom();
+        document.getElementById('zoom-level').innerText = '100%';
+        document.getElementById('board-wrapper').style.zoom = 1.0;
+        drawConnections(); // Redibujado forzado e inmediato con los defs integrados
 
         // 4. Detectar y desactivar temporalmente el modo de colores accesibles
         const isAccessibleMode = document.body.classList.contains('accessible-mode');
@@ -2710,6 +2712,16 @@
             ghostSvg.style.width = '100%'; 
             ghostSvg.style.height = '100%'; 
         }
+
+        // Mochila fija de marcadores para asegurar su presencia ante cualquier exportación
+        const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+        defs.innerHTML = `
+            <marker id="arrowhead" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b" /></marker>
+            <marker id="arrowhead-coreq" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8b5cf6" /></marker>
+            <marker id="arrowhead-req" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" style="fill: var(--highlight-req, #ef4444);" /></marker>
+            <marker id="arrowhead-next" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" style="fill: var(--highlight-next, #10b981);" /></marker>
+        `;
+        svg.appendChild(defs);
 
         const cfg = state.config || (typeof initialData !== 'undefined' ? initialData.config : { semesters: 10 });
         const visibleLevels = state.levels.slice(0, cfg.semesters);
