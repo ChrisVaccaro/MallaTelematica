@@ -2755,6 +2755,7 @@
             }
         });
 
+        // Asegurar que levelBoundsY tenga valor incluso si la fila está vacía
         visibleLevels.forEach((l, i) => {
             if (!levelBoundsY[l.id]) {
                 const prevLvl = i > 0 ? visibleLevels[i-1].id : null;
@@ -2802,27 +2803,13 @@
 
         connRoutes.sort((a, b) => b.lvlFromIdx - a.lvlFromIdx);
 
-        function getDynamicCardX(colIdx) {
-            const refSubj = state.subjects.find(s => s.col === colIdx);
-            if (refSubj) {
-                const refCard = document.getElementById(`card-${refSubj.id}`);
-                if (refCard) return getZoomedPos(refCard).x;
-            }
-            return 236 + (colIdx * 250);
-        }
+        function getCardX(colIdx) { return 236 + (colIdx * 250); }
+        function getGapX(colIdx) { return 236 + (colIdx * 250) + 200; }
 
-        function getDynamicGapX(colIdx) {
-            const refSubj = state.subjects.find(s => s.col === colIdx);
-            if (refSubj) {
-                const refCard = document.getElementById(`card-${refSubj.id}`);
-                if (refCard) return getZoomedPos(refCard).right;
-            }
-            return 236 + (colIdx * 250) + 200;
-        }
-
-        // --- 3. GESTOR DINÁMICO DE PUERTOS ---
+        // --- 3. GESTOR DINÁMICO DE PUERTOS (EVITA SOBREPOSICIONES) ---
         const incomingPortsUsed = {};
         
+        // Pre-registro: Las líneas rectas reclaman el centro (100) por derecho
         connRoutes.forEach(r => {
             if (r.isStraight) {
                 if (!incomingPortsUsed[r.to]) incomingPortsUsed[r.to] = [];
@@ -2851,7 +2838,7 @@
                 }
             }
 
-            const targetCenterX = getDynamicCardX(route.sTo.col) + 100;
+            const targetCenterX = getCardX(route.sTo.col) + 100;
             let preferredPorts = [];
             
             if (shadowBlocked) {
@@ -2871,7 +2858,7 @@
             return preferredPorts[0]; 
         }
 
-        // --- 4. LA MATRIZ DE CARRILES ESTRICTA ---
+        // --- 4. LA MATRIZ DE CARRILES ESTRICTA (0, 8, 16, 24, 32) ---
         const hSegments = []; 
         const vSegments = []; 
         const ghostCentersOccupied = {}; 
@@ -2886,22 +2873,21 @@
 
             let familySpanMinX = minX;
             let familySpanMaxX = maxX;
+            const familyRoutes = connRoutes.filter(r => r.from === sourceId && (r.lvlDistance === 0) === isCoreq && !r.isStraight);
             
-            if (!isCoreq) {
-                const familyRoutes = connRoutes.filter(r => r.from === sourceId && r.lvlDistance > 0 && !r.isStraight);
-                familyRoutes.forEach(fr => {
-                    const startPortX = getDynamicCardX(fr.sFrom.col) + 100;
-                    let endPortX = (fr.lvlDistance === 1) ? getDynamicCardX(fr.sTo.col) + 100 : getDynamicGapX(fr.vColRoute);
-                    familySpanMinX = Math.min(familySpanMinX, startPortX, endPortX);
-                    familySpanMaxX = Math.max(familySpanMaxX, startPortX, endPortX);
-                });
-                familySpanMinX -= 5;
-                familySpanMaxX += 5;
-            }
+            familyRoutes.forEach(fr => {
+                const startPortX = getCardX(fr.sFrom.col) + 100;
+                let endPortX = (fr.lvlDistance === 1 || fr.lvlDistance === 0) ? getCardX(fr.sTo.col) + 100 : getGapX(fr.vColRoute);
+                familySpanMinX = Math.min(familySpanMinX, startPortX, endPortX);
+                familySpanMaxX = Math.max(familySpanMaxX, startPortX, endPortX);
+            });
+
+            familySpanMinX -= 5;
+            familySpanMaxX += 5;
 
             for (let p of priorities) {
                 const testY = exactYBase + p;
-                const collision = hSegments.find(seg => seg.level === levelId && seg.y === testY && !(familySpanMaxX <= seg.minX || familySpanMinX >= seg.maxX));
+                const collision = hSegments.find(seg => seg.level === levelId && seg.y === testY && !(familySpanMaxX < seg.minX || familySpanMinX > seg.maxX));
                 if (!collision) {
                     hSegments.push({ level: levelId, track: p, minX: familySpanMinX, maxX: familySpanMaxX, sourceId, y: testY, isCoreq });
                     return testY;
@@ -2910,7 +2896,7 @@
 
             for (let p of priorities) {
                 const testY = exactYBase + p;
-                const collision = hSegments.find(seg => seg.level === levelId && seg.y === testY && !(maxX <= seg.minX || minX >= seg.maxX));
+                const collision = hSegments.find(seg => seg.level === levelId && seg.y === testY && !(maxX < seg.minX || minX > seg.maxX));
                 if (!collision) {
                     hSegments.push({ level: levelId, track: p, minX: minX, maxX: maxX, sourceId, y: testY, isCoreq });
                     return testY;
@@ -2927,7 +2913,7 @@
             const familySegs = vSegments.filter(seg => seg.colIdx === colIdx && seg.sourceId === sourceId);
             if (familySegs.length > 0) {
                 const prefTrack = familySegs[0].track;
-                const coll = vSegments.find(seg => seg.colIdx === colIdx && seg.track === prefTrack && seg.sourceId !== sourceId && !(maxY <= seg.minY || minY >= seg.maxY));
+                const coll = vSegments.find(seg => seg.colIdx === colIdx && seg.track === prefTrack && seg.sourceId !== sourceId && !(maxY < seg.minY || minY > seg.maxY));
                 if (!coll) {
                     vSegments.push({ colIdx, track: prefTrack, minY, maxY, sourceId, x: exactXBase + prefTrack });
                     return prefTrack;
@@ -2935,7 +2921,7 @@
             }
 
             for (let p of priorities) {
-                const collision = vSegments.find(seg => seg.colIdx === colIdx && seg.track === p && seg.sourceId !== sourceId && !(maxY <= seg.minY || minY >= seg.maxY));
+                const collision = vSegments.find(seg => seg.colIdx === colIdx && seg.track === p && seg.sourceId !== sourceId && !(maxY < seg.minY || minY > seg.maxY));
                 if (!collision) {
                     vSegments.push({ colIdx, track: p, minY, maxY, sourceId, x: exactXBase + p });
                     return p;
@@ -2972,32 +2958,15 @@
                 canCrossHorizontal = empty;
             }
 
-            // NUEVO ESCÁNER VISUAL PARA ATAJOS FANTASMAS
             let ghostCellCol = -1;
             if (!isSameLevel && route.sFrom.col !== route.sTo.col && route.lvlDistance > 1) {
                 const checkCol = route.sTo.col; 
                 let empty = true;
                 const minLvl = Math.min(route.lvlFromIdx, route.lvlToIdx);
                 const maxLvl = Math.max(route.lvlFromIdx, route.lvlToIdx);
-                
                 for (let l = minLvl + 1; l < maxLvl; l++) {
-                    const levelId = state.levels[l].id;
-                    const subjectsInLvl = state.subjects.filter(s => s.level === levelId);
-                    
-                    for (let sub of subjectsInLvl) {
-                        const midCard = document.getElementById(`card-${sub.id}`);
-                        if (midCard) {
-                            const midPos = getZoomedPos(midCard);
-                            // Verificamos si alguna tarjeta intermedia invade el ancho visual del destino
-                            if (midPos.x < toPos.right && midPos.right > toPos.x) {
-                                empty = false;
-                                break;
-                            }
-                        }
-                    }
-                    if (!empty) break;
+                    if (occupied[state.levels[l].id] && occupied[state.levels[l].id][checkCol]) { empty = false; break; }
                 }
-
                 if (empty && !ghostCentersOccupied[`${checkCol}-${route.lvlFromIdx}-${route.lvlToIdx}`]) {
                     ghostCellCol = checkCol;
                     ghostCentersOccupied[`${checkCol}-${route.lvlFromIdx}-${route.lvlToIdx}`] = true;
@@ -3047,9 +3016,9 @@
                     const baseYIn = levelBoundsY[targetLvlIdIn] || (y2 - 32);
 
                     if (ghostCellCol !== -1 && ghostCellCol === route.sTo.col) {
-                        const y_pasillo1 = getHTrack(route.sFrom.level, x1, getDynamicCardX(route.sTo.col) + 100, route.from, baseYOut, false);
+                        const y_pasillo1 = getHTrack(route.sFrom.level, x1, getCardX(route.sTo.col) + 100, route.from, baseYOut, false);
                         const portXIn = getIncomingPort(route, x1);
-                        const x2 = getDynamicCardX(route.sTo.col) + portXIn;
+                        const x2 = getCardX(route.sTo.col) + portXIn;
                         
                         routeInfo.type = 'req-ghost';
                         routeInfo.x1 = x1; routeInfo.y1 = y1; routeInfo.x2 = x2; routeInfo.y2 = y2;
@@ -3058,13 +3027,13 @@
                         addVLine(x1, y1, y_pasillo1, route.from);
                         addVLine(x2, y_pasillo1, y2, route.from);
                     } else {
-                        const xRef = getDynamicGapX(route.vColRoute); 
+                        const xRef = getGapX(route.vColRoute); 
                         const travelDir = (route.sFrom.col <= route.vColRoute) ? 'right' : 'left';
                         const trackOffset = getVTrack(route.vColRoute, baseYOut, baseYIn, travelDir, route.from, xRef);
                         const laneX = xRef + trackOffset; 
                         
                         const portXIn = getIncomingPort(route, laneX);
-                        const x2 = getDynamicCardX(route.sTo.col) + portXIn;
+                        const x2 = getCardX(route.sTo.col) + portXIn;
 
                         if (route.lvlDistance === 1) {
                             const midY = getHTrack(route.sFrom.level, x1, x2, route.from, baseYOut, false); 
