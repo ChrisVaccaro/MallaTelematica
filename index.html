@@ -2879,7 +2879,8 @@
         const ghostCentersOccupied = {}; 
         
         function getHTrack(levelId, startX, endX, sourceId, exactYBase, isCoreq) {
-            const priorities = isCoreq ? [32, 24] : [8, 16, 0];
+            // Ampliamos la capacidad a 6 carriles normales para evitar solapamientos
+            const priorities = isCoreq ? [32, 24] : [8, 16, 0, 12, 4, 20];
             const minX = Math.min(startX, endX);
             const maxX = Math.max(startX, endX);
 
@@ -2901,9 +2902,10 @@
                 familySpanMaxX += 5;
             }
 
+            // Operadores cambiados a < y > para sensibilidad milimétrica al toque
             for (let p of priorities) {
                 const testY = exactYBase + p;
-                const collision = hSegments.find(seg => seg.level === levelId && seg.y === testY && !(familySpanMaxX <= seg.minX || familySpanMinX >= seg.maxX));
+                const collision = hSegments.find(seg => seg.level === levelId && seg.y === testY && !(familySpanMaxX < seg.minX || familySpanMinX > seg.maxX));
                 if (!collision) {
                     hSegments.push({ level: levelId, track: p, minX: familySpanMinX, maxX: familySpanMaxX, sourceId, y: testY, isCoreq });
                     return testY;
@@ -2912,7 +2914,7 @@
 
             for (let p of priorities) {
                 const testY = exactYBase + p;
-                const collision = hSegments.find(seg => seg.level === levelId && seg.y === testY && !(maxX <= seg.minX || minX >= seg.maxX));
+                const collision = hSegments.find(seg => seg.level === levelId && seg.y === testY && !(maxX < seg.minX || minX > seg.maxX));
                 if (!collision) {
                     hSegments.push({ level: levelId, track: p, minX: minX, maxX: maxX, sourceId, y: testY, isCoreq });
                     return testY;
@@ -2921,24 +2923,25 @@
             return exactYBase + priorities[0]; 
         }
 
-        // SOLUCIÓN APLICADA: isGap filtra la memoria para que las diagonales no copien a las rectas
         function getVTrack(colIdx, startY, endY, travelDirection, sourceId, exactXBase) {
-            let priorities = (travelDirection === 'right') ? [17, 25, 33] : [33, 25, 17];
+            // Ampliamos la capacidad a 5 carriles verticales
+            let priorities = (travelDirection === 'right') ? [17, 25, 33, 9, 41] : [33, 25, 17, 41, 9];
             const minY = Math.min(startY, endY);
             const maxY = Math.max(startY, endY);
 
             const familySegs = vSegments.filter(seg => seg.colIdx === colIdx && seg.sourceId === sourceId && seg.isGap);
             if (familySegs.length > 0) {
                 const prefTrack = familySegs[0].track;
-                const coll = vSegments.find(seg => seg.colIdx === colIdx && seg.track === prefTrack && seg.sourceId !== sourceId && seg.isGap && !(maxY <= seg.minY || minY >= seg.maxY));
+                const coll = vSegments.find(seg => seg.colIdx === colIdx && seg.track === prefTrack && seg.sourceId !== sourceId && seg.isGap && !(maxY < seg.minY || minY > seg.maxY));
                 if (!coll) {
                     vSegments.push({ colIdx, track: prefTrack, minY, maxY, sourceId, x: exactXBase + prefTrack, isGap: true });
                     return prefTrack;
                 }
             }
 
+            // Operadores cambiados a < y > 
             for (let p of priorities) {
-                const collision = vSegments.find(seg => seg.colIdx === colIdx && seg.track === p && seg.sourceId !== sourceId && seg.isGap && !(maxY <= seg.minY || minY >= seg.maxY));
+                const collision = vSegments.find(seg => seg.colIdx === colIdx && seg.track === p && seg.sourceId !== sourceId && seg.isGap && !(maxY < seg.minY || minY > seg.maxY));
                 if (!collision) {
                     vSegments.push({ colIdx, track: p, minY, maxY, sourceId, x: exactXBase + p, isGap: true });
                     return p;
