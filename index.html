@@ -216,7 +216,7 @@
     .board-wrapper { 
         position: relative; 
         min-width: max-content; 
-        transition: zoom 0.2s ease-out;
+        /*transition: zoom 0.2s ease-out;*/
     }
 
     svg#connections-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5 !important; }
@@ -918,7 +918,9 @@
     function applyZoom() {
         document.getElementById('zoom-level').innerText = Math.round(currentZoom * 100) + '%';
         document.getElementById('board-wrapper').style.zoom = currentZoom;
-        drawConnections(); 
+        setTimeout(() => {
+            drawConnections(); 
+        }, 50); 
     }
 
     function toggleAnalyticsPanel() {
