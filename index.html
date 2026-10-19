@@ -2883,7 +2883,6 @@
             const minX = Math.min(startX, endX);
             const maxX = Math.max(startX, endX);
 
-            // Reutiliza carril si es de la misma familia y del MISMO PISO (top vs bottom)
             const familySegs = hSegments.filter(seg => seg.level === levelId && seg.sourceId === sourceId && seg.isCoreq === isCoreq && seg.floorType === floorType);
             if (familySegs.length > 0) return familySegs[0].y;
 
@@ -2894,7 +2893,6 @@
                 const familyRoutes = connRoutes.filter(r => r.from === sourceId && r.lvlDistance > 0 && !r.isStraight);
                 
                 if (floorType === 'top') {
-                    // Si es el piso de arriba, agrupamos desde la salida hasta los pasillos verticales
                     familyRoutes.forEach(fr => {
                         const startPortX = getDynamicCardX(fr.sFrom.col) + 100;
                         let endPortX = (fr.lvlDistance === 1) ? getDynamicCardX(fr.sTo.col) + 100 : getDynamicGapX(fr.vColRoute);
@@ -2902,7 +2900,6 @@
                         familySpanMaxX = Math.max(familySpanMaxX, startPortX, endPortX);
                     });
                 } else if (floorType === 'bottom') {
-                    // Si es el piso de abajo, agrupamos desde los pasillos verticales hacia el destino, SÓLO si terminan en este nivel
                     familyRoutes.forEach(fr => {
                         const frTargetLvlIdIn = fr.lvlToIdx > 0 ? state.levels[fr.lvlToIdx - 1].id : fr.sTo.level;
                         if (fr.lvlDistance > 1 && frTargetLvlIdIn === levelId) {
@@ -3037,7 +3034,6 @@
                     const levelAboveId = route.lvlFromIdx > 0 ? state.levels[route.lvlFromIdx - 1].id : null;
                     const gapBaseY = levelAboveId ? levelBoundsY[levelAboveId] : (levelTopY[route.sFrom.level] - 32);
                     
-                    // Corequisitos siempre cuentan como top
                     const routeY = getHTrack((levelAboveId || 'top'), startX + dirOffset, endX - dirOffset, route.from, gapBaseY, true, 'top');
                     
                     routeInfo.type = 'coreq-roof';
@@ -3094,7 +3090,6 @@
                             addVLine(x1, y1, midY, route.from);
                             addVLine(x2, midY, y2, route.from);
                         } else {
-                            // AQUÍ ESTÁ LA MAGIA DE LA INDEPENDENCIA DE PISOS: 'top' arriba, 'bottom' abajo
                             const y_pasillo1 = getHTrack(route.sFrom.level, x1, laneX, route.from, baseYOut, false, 'top');
                             const y_pasillo2 = getHTrack(targetLvlIdIn, laneX, x2, route.from, baseYIn, false, 'bottom');
                             
@@ -3120,7 +3115,8 @@
             const hopRadius = 5; 
             
             const intersections = allVerticalLines
-                .filter(seg => seg.minY <= y + 0.5 && seg.maxY >= y - 0.5 && seg.x > (minX + hopRadius) && seg.x < (maxX - hopRadius) && seg.sourceId !== currentSourceId)
+                // Protegemos el codo con 1px extra (hopRadius + 1 = 6px) de margen
+                .filter(seg => seg.minY <= y + 0.5 && seg.maxY >= y - 0.5 && seg.x >= (minX + hopRadius + 1) && seg.x <= (maxX - hopRadius - 1) && seg.sourceId !== currentSourceId)
                 .map(seg => seg.x)
                 .sort((a, b) => isGoingRight ? a - b : b - a);
 
@@ -3128,7 +3124,8 @@
             let currentX = startX;
 
             intersections.forEach(ix => {
-                if (Math.abs(currentX - ix) >= hopRadius * 2) {
+                // Reducimos el colchón de hopRadius * 2 (10px) a hopRadius + 1 (6px)
+                if (Math.abs(currentX - ix) >= hopRadius + 1) {
                     const startHopX = isGoingRight ? ix - hopRadius : ix + hopRadius;
                     const endHopX = isGoingRight ? ix + hopRadius : ix - hopRadius;
                     const sweep = isGoingRight ? 1 : 0; 
