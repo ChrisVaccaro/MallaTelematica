@@ -2802,8 +2802,24 @@
 
         connRoutes.sort((a, b) => b.lvlFromIdx - a.lvlFromIdx);
 
-        function getCardX(colIdx) { return 236 + (colIdx * 250); }
-        function getGapX(colIdx) { return 236 + (colIdx * 250) + 200; }
+        // RESTAURACIÓN DEL ESCÁNER VISUAL (Ojos en lugar de matemáticas a ciegas)
+        function getDynamicCardX(colIdx) {
+            const refSubj = state.subjects.find(s => s.col === colIdx);
+            if (refSubj) {
+                const refCard = document.getElementById(`card-${refSubj.id}`);
+                if (refCard) return getZoomedPos(refCard).x;
+            }
+            return 236 + (colIdx * 250); // Fallback
+        }
+
+        function getDynamicGapX(colIdx) {
+            const refSubj = state.subjects.find(s => s.col === colIdx);
+            if (refSubj) {
+                const refCard = document.getElementById(`card-${refSubj.id}`);
+                if (refCard) return getZoomedPos(refCard).right;
+            }
+            return 236 + (colIdx * 250) + 200; // Fallback
+        }
 
         // --- 3. GESTOR DINÁMICO DE PUERTOS ---
         const incomingPortsUsed = {};
@@ -2836,7 +2852,7 @@
                 }
             }
 
-            const targetCenterX = getCardX(route.sTo.col) + 100;
+            const targetCenterX = getDynamicCardX(route.sTo.col) + 100;
             let preferredPorts = [];
             
             if (shadowBlocked) {
@@ -2872,12 +2888,11 @@
             let familySpanMinX = minX;
             let familySpanMaxX = maxX;
             
-            // TU REGLA APLICADA: Solo calculamos expansión y márgenes de 5px si NO es un correquisito
             if (!isCoreq) {
                 const familyRoutes = connRoutes.filter(r => r.from === sourceId && r.lvlDistance > 0 && !r.isStraight);
                 familyRoutes.forEach(fr => {
-                    const startPortX = getCardX(fr.sFrom.col) + 100;
-                    let endPortX = (fr.lvlDistance === 1) ? getCardX(fr.sTo.col) + 100 : getGapX(fr.vColRoute);
+                    const startPortX = getDynamicCardX(fr.sFrom.col) + 100;
+                    let endPortX = (fr.lvlDistance === 1) ? getDynamicCardX(fr.sTo.col) + 100 : getDynamicGapX(fr.vColRoute);
                     familySpanMinX = Math.min(familySpanMinX, startPortX, endPortX);
                     familySpanMaxX = Math.max(familySpanMaxX, startPortX, endPortX);
                 });
@@ -2885,7 +2900,6 @@
                 familySpanMaxX += 5;
             }
 
-            // Uso de <= y >= para permitir que las rutas de relevo se toquen exactamente en los bordes
             for (let p of priorities) {
                 const testY = exactYBase + p;
                 const collision = hSegments.find(seg => seg.level === levelId && seg.y === testY && !(familySpanMaxX <= seg.minX || familySpanMinX >= seg.maxX));
@@ -3017,9 +3031,9 @@
                     const baseYIn = levelBoundsY[targetLvlIdIn] || (y2 - 32);
 
                     if (ghostCellCol !== -1 && ghostCellCol === route.sTo.col) {
-                        const y_pasillo1 = getHTrack(route.sFrom.level, x1, getCardX(route.sTo.col) + 100, route.from, baseYOut, false);
+                        const y_pasillo1 = getHTrack(route.sFrom.level, x1, getDynamicCardX(route.sTo.col) + 100, route.from, baseYOut, false);
                         const portXIn = getIncomingPort(route, x1);
-                        const x2 = getCardX(route.sTo.col) + portXIn;
+                        const x2 = getDynamicCardX(route.sTo.col) + portXIn;
                         
                         routeInfo.type = 'req-ghost';
                         routeInfo.x1 = x1; routeInfo.y1 = y1; routeInfo.x2 = x2; routeInfo.y2 = y2;
@@ -3028,13 +3042,13 @@
                         addVLine(x1, y1, y_pasillo1, route.from);
                         addVLine(x2, y_pasillo1, y2, route.from);
                     } else {
-                        const xRef = getGapX(route.vColRoute); 
+                        const xRef = getDynamicGapX(route.vColRoute); 
                         const travelDir = (route.sFrom.col <= route.vColRoute) ? 'right' : 'left';
                         const trackOffset = getVTrack(route.vColRoute, baseYOut, baseYIn, travelDir, route.from, xRef);
                         const laneX = xRef + trackOffset; 
                         
                         const portXIn = getIncomingPort(route, laneX);
-                        const x2 = getCardX(route.sTo.col) + portXIn;
+                        const x2 = getDynamicCardX(route.sTo.col) + portXIn;
 
                         if (route.lvlDistance === 1) {
                             const midY = getHTrack(route.sFrom.level, x1, x2, route.from, baseYOut, false); 
