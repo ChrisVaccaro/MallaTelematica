@@ -2704,7 +2704,7 @@
         svg.style.width = '100%'; 
         svg.style.height = '100%';
         if (ghostSvg) { 
-            ghostSvg.innerHTML = ''; // Limpiamos cualquier rastro del modo depuración
+            ghostSvg.innerHTML = ''; 
             ghostSvg.style.width = '100%'; 
             ghostSvg.style.height = '100%'; 
         }
@@ -2748,7 +2748,7 @@
                         if (rowEl) {
                             const rowPos = getZoomedPos(rowEl);
                             levelBoundsY[s.level] = rowPos.bottom; 
-                            levelTopY[s.level] = rowPos.y; // Coordenada superior corregida
+                            levelTopY[s.level] = rowPos.y; 
                         }
                     }
                 }
@@ -2842,10 +2842,8 @@
             let preferredPorts = [];
             
             if (shadowBlocked) {
-                // Si hay sombra, prohibido usar el centro
                 preferredPorts = (laneX < targetCenterX) ? [75, 125] : [125, 75]; 
             } else {
-                // Si no hay sombra, priorizamos el centro, y luego los costados según procedencia
                 preferredPorts = [100, (laneX < targetCenterX) ? 75 : 125, (laneX < targetCenterX) ? 125 : 75];
             }
 
@@ -2856,7 +2854,6 @@
                 }
             }
             
-            // Fallback
             used.push(preferredPorts[0]);
             return preferredPorts[0]; 
         }
@@ -2867,21 +2864,20 @@
         const ghostCentersOccupied = {}; 
         
         function getHTrack(levelId, startX, endX, sourceId, exactYBase, isCoreq) {
-            // REGLA: Correquisitos exigen [32, 24]. Prerrequisitos exigen [8, 16, 0].
             const priorities = isCoreq ? [32, 24] : [8, 16, 0];
             const minX = Math.min(startX, endX);
             const maxX = Math.max(startX, endX);
 
-            const familySegs = hSegments.filter(seg => seg.level === levelId && seg.sourceId === sourceId);
+            const familySegs = hSegments.filter(seg => seg.level === levelId && seg.sourceId === sourceId && seg.isCoreq === isCoreq);
             if (familySegs.length > 0) return familySegs[0].y;
 
             let familySpanMinX = minX;
             let familySpanMaxX = maxX;
-            const familyRoutes = connRoutes.filter(r => r.from === sourceId && r.lvlDistance > 0 && !r.isStraight);
+            const familyRoutes = connRoutes.filter(r => r.from === sourceId && (r.lvlDistance === 0) === isCoreq && !r.isStraight);
             
             familyRoutes.forEach(fr => {
                 const startPortX = getCardX(fr.sFrom.col) + 100;
-                let endPortX = (fr.lvlDistance === 1) ? getCardX(fr.sTo.col) + 100 : getGapX(fr.vColRoute);
+                let endPortX = (fr.lvlDistance === 1 || fr.lvlDistance === 0) ? getCardX(fr.sTo.col) + 100 : getGapX(fr.vColRoute);
                 familySpanMinX = Math.min(familySpanMinX, startPortX, endPortX);
                 familySpanMaxX = Math.max(familySpanMaxX, startPortX, endPortX);
             });
@@ -2893,7 +2889,7 @@
                 const testY = exactYBase + p;
                 const collision = hSegments.find(seg => seg.level === levelId && seg.y === testY && !(familySpanMaxX < seg.minX || familySpanMinX > seg.maxX));
                 if (!collision) {
-                    hSegments.push({ level: levelId, track: p, minX: familySpanMinX, maxX: familySpanMaxX, sourceId, y: testY });
+                    hSegments.push({ level: levelId, track: p, minX: familySpanMinX, maxX: familySpanMaxX, sourceId, y: testY, isCoreq });
                     return testY;
                 }
             }
@@ -2902,7 +2898,7 @@
                 const testY = exactYBase + p;
                 const collision = hSegments.find(seg => seg.level === levelId && seg.y === testY && !(maxX < seg.minX || minX > seg.maxX));
                 if (!collision) {
-                    hSegments.push({ level: levelId, track: p, minX: minX, maxX: maxX, sourceId, y: testY });
+                    hSegments.push({ level: levelId, track: p, minX: minX, maxX: maxX, sourceId, y: testY, isCoreq });
                     return testY;
                 }
             }
@@ -2934,7 +2930,7 @@
             return priorities[0]; 
         }
 
-        // --- 5. PASADA 1: CALCULAR RUTAS Y REGISTRAR LÍNEAS VERTICALES (TWO-PASS ROUTING) ---
+        // --- 5. PASADA 1: CALCULAR RUTAS Y REGISTRAR LÍNEAS VERTICALES ---
         const computedRoutes = [];
         const allVerticalLines = [];
 
@@ -2993,7 +2989,6 @@
                     const levelAboveId = route.lvlFromIdx > 0 ? state.levels[route.lvlFromIdx - 1].id : null;
                     const gapBaseY = levelAboveId ? levelBoundsY[levelAboveId] : (levelTopY[route.sFrom.level] - 32);
                     
-                    // REGLA APLICADA: Correquisitos piden su carril en el techo de su propio pasillo
                     const routeY = getHTrack((levelAboveId || 'top'), startX + dirOffset, endX - dirOffset, route.from, gapBaseY, true);
                     
                     routeInfo.type = 'coreq-roof';
@@ -3006,7 +3001,7 @@
             } else {
                 const x1 = fromPos.x + 100;
                 const y1 = fromPos.bottom; 
-                const y2 = toPos.y; // ¡CORRECCIÓN APLICADA AQUÍ! (Era toPos.top)
+                const y2 = toPos.y; 
 
                 if (route.isStraight) {
                     if (route.lvlDistance > 1) ghostCentersOccupied[`${route.sFrom.col}-${route.lvlFromIdx}-${route.lvlToIdx}`] = true;
