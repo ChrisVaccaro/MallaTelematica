@@ -2704,7 +2704,7 @@
         svg.style.width = '100%'; 
         svg.style.height = '100%';
         if (ghostSvg) { 
-            ghostSvg.innerHTML = ''; 
+            ghostSvg.innerHTML = ''; // Limpiamos cualquier rastro del modo depuración
             ghostSvg.style.width = '100%'; 
             ghostSvg.style.height = '100%'; 
         }
@@ -2748,10 +2748,19 @@
                         if (rowEl) {
                             const rowPos = getZoomedPos(rowEl);
                             levelBoundsY[s.level] = rowPos.bottom; 
-                            levelTopY[s.level] = rowPos.top; 
+                            levelTopY[s.level] = rowPos.y; // Coordenada superior corregida
                         }
                     }
                 }
+            }
+        });
+
+        // Asegurar que levelBoundsY tenga valor incluso si la fila está vacía
+        visibleLevels.forEach((l, i) => {
+            if (!levelBoundsY[l.id]) {
+                const prevLvl = i > 0 ? visibleLevels[i-1].id : null;
+                levelTopY[l.id] = prevLvl && levelBoundsY[prevLvl] ? levelBoundsY[prevLvl] + 32 : 0;
+                levelBoundsY[l.id] = levelTopY[l.id] + 135; 
             }
         });
 
@@ -2794,15 +2803,27 @@
 
         connRoutes.sort((a, b) => b.lvlFromIdx - a.lvlFromIdx);
 
-        // --- 3. GESTOR DE LLEGADAS Y SOMBRAS ---
+        function getCardX(colIdx) { return 236 + (colIdx * 250); }
+        function getGapX(colIdx) { return 236 + (colIdx * 250) + 200; }
+
+        // --- 3. GESTOR DINÁMICO DE PUERTOS (EVITA SOBREPOSICIONES) ---
+        const incomingPortsUsed = {};
+        
+        // Pre-registro: Las líneas rectas reclaman el centro (100) por derecho
+        connRoutes.forEach(r => {
+            if (r.isStraight) {
+                if (!incomingPortsUsed[r.to]) incomingPortsUsed[r.to] = [];
+                incomingPortsUsed[r.to].push(100);
+            }
+        });
+
         function getIncomingPort(route, laneX) {
+            if (!incomingPortsUsed[route.to]) incomingPortsUsed[route.to] = [];
+            const used = incomingPortsUsed[route.to];
+
             if (route.isStraight) return 100; 
 
-            const destHasStraightIn = connRoutes.some(r => r.to === route.to && r.isStraight);
-            const sourceHasStraightOut = connRoutes.some(r => r.from === route.from && r.isStraight);
-
             let shadowBlocked = false;
-            
             for (let l = route.lvlToIdx - 1; l >= 0; l--) {
                 const levelAboveId = state.levels[l].id;
                 const subjAbove = state.subjects.find(s => s.level === levelAboveId && s.col === route.sTo.col);
@@ -2817,34 +2838,36 @@
                 }
             }
 
-            if ((destHasStraightIn && sourceHasStraightOut) || shadowBlocked) {
-                const targetCard = document.getElementById(`card-${route.to}`);
-                const targetCenterX = getZoomedPos(targetCard).x + 100;
-                if (laneX < targetCenterX) return 75;  
-                else return 125; 
-            }
+            const targetCenterX = getCardX(route.sTo.col) + 100;
+            let preferredPorts = [];
             
-            return 100; 
-        }
-        
-        function getDynamicGapX(colIdx) {
-            const refSubj = state.subjects.find(s => s.col === colIdx);
-            if (refSubj) {
-                const refCard = document.getElementById(`card-${refSubj.id}`);
-                if (refCard) {
-                    return getZoomedPos(refCard).right;
+            if (shadowBlocked) {
+                // Si hay sombra, prohibido usar el centro
+                preferredPorts = (laneX < targetCenterX) ? [75, 125] : [125, 75]; 
+            } else {
+                // Si no hay sombra, priorizamos el centro, y luego los costados según procedencia
+                preferredPorts = [100, (laneX < targetCenterX) ? 75 : 125, (laneX < targetCenterX) ? 125 : 75];
+            }
+
+            for (let p of preferredPorts) {
+                if (!used.includes(p)) {
+                    used.push(p);
+                    return p;
                 }
             }
-            return 236 + (colIdx * 250) + 200;
+            
+            // Fallback
+            used.push(preferredPorts[0]);
+            return preferredPorts[0]; 
         }
 
-        // --- 4. LA MATRIZ DE CARRILES ESTRICTA ---
+        // --- 4. LA MATRIZ DE CARRILES ESTRICTA (0, 8, 16, 24, 32) ---
         const hSegments = []; 
         const vSegments = []; 
         const ghostCentersOccupied = {}; 
-        const coreqOccupied = {}; 
-
+        
         function getHTrack(levelId, startX, endX, sourceId, exactYBase, isCoreq) {
+            // REGLA: Correquisitos exigen [32, 24]. Prerrequisitos exigen [8, 16, 0].
             const priorities = isCoreq ? [32, 24] : [8, 16, 0];
             const minX = Math.min(startX, endX);
             const maxX = Math.max(startX, endX);
@@ -2857,14 +2880,10 @@
             const familyRoutes = connRoutes.filter(r => r.from === sourceId && r.lvlDistance > 0 && !r.isStraight);
             
             familyRoutes.forEach(fr => {
-                const fCard = document.getElementById(`card-${fr.from}`);
-                const tCard = document.getElementById(`card-${fr.to}`);
-                if (fCard && tCard) {
-                    const startPortX = getZoomedPos(fCard).x + 100;
-                    let endPortX = (fr.lvlDistance === 1) ? getZoomedPos(tCard).x + 100 : getDynamicGapX(fr.vColRoute);
-                    familySpanMinX = Math.min(familySpanMinX, startPortX, endPortX);
-                    familySpanMaxX = Math.max(familySpanMaxX, startPortX, endPortX);
-                }
+                const startPortX = getCardX(fr.sFrom.col) + 100;
+                let endPortX = (fr.lvlDistance === 1) ? getCardX(fr.sTo.col) + 100 : getGapX(fr.vColRoute);
+                familySpanMinX = Math.min(familySpanMinX, startPortX, endPortX);
+                familySpanMaxX = Math.max(familySpanMaxX, startPortX, endPortX);
             });
 
             familySpanMinX -= 5;
@@ -2898,7 +2917,7 @@
             const familySegs = vSegments.filter(seg => seg.colIdx === colIdx && seg.sourceId === sourceId);
             if (familySegs.length > 0) {
                 const prefTrack = familySegs[0].track;
-                const coll = vSegments.find(seg => seg.colIdx === colIdx && seg.track === prefTrack && seg.sourceId !== sourceId && !(maxY <= seg.minY || minY >= seg.maxY));
+                const coll = vSegments.find(seg => seg.colIdx === colIdx && seg.track === prefTrack && seg.sourceId !== sourceId && !(maxY < seg.minY || minY > seg.maxY));
                 if (!coll) {
                     vSegments.push({ colIdx, track: prefTrack, minY, maxY, sourceId, x: exactXBase + prefTrack });
                     return prefTrack;
@@ -2906,7 +2925,7 @@
             }
 
             for (let p of priorities) {
-                const collision = vSegments.find(seg => seg.colIdx === colIdx && seg.track === p && seg.sourceId !== sourceId && !(maxY <= seg.minY || minY >= seg.maxY));
+                const collision = vSegments.find(seg => seg.colIdx === colIdx && seg.track === p && seg.sourceId !== sourceId && !(maxY < seg.minY || minY > seg.maxY));
                 if (!collision) {
                     vSegments.push({ colIdx, track: p, minY, maxY, sourceId, x: exactXBase + p });
                     return p;
@@ -2915,7 +2934,7 @@
             return priorities[0]; 
         }
 
-        // --- 5. PASADA 1: CALCULAR RUTAS Y REGISTRAR LÍNEAS VERTICALES ---
+        // --- 5. PASADA 1: CALCULAR RUTAS Y REGISTRAR LÍNEAS VERTICALES (TWO-PASS ROUTING) ---
         const computedRoutes = [];
         const allVerticalLines = [];
 
@@ -2974,6 +2993,7 @@
                     const levelAboveId = route.lvlFromIdx > 0 ? state.levels[route.lvlFromIdx - 1].id : null;
                     const gapBaseY = levelAboveId ? levelBoundsY[levelAboveId] : (levelTopY[route.sFrom.level] - 32);
                     
+                    // REGLA APLICADA: Correquisitos piden su carril en el techo de su propio pasillo
                     const routeY = getHTrack((levelAboveId || 'top'), startX + dirOffset, endX - dirOffset, route.from, gapBaseY, true);
                     
                     routeInfo.type = 'coreq-roof';
@@ -2986,7 +3006,7 @@
             } else {
                 const x1 = fromPos.x + 100;
                 const y1 = fromPos.bottom; 
-                const y2 = toPos.top; 
+                const y2 = toPos.y; // ¡CORRECCIÓN APLICADA AQUÍ! (Era toPos.top)
 
                 if (route.isStraight) {
                     if (route.lvlDistance > 1) ghostCentersOccupied[`${route.sFrom.col}-${route.lvlFromIdx}-${route.lvlToIdx}`] = true;
@@ -3001,9 +3021,9 @@
                     const baseYIn = levelBoundsY[targetLvlIdIn] || (y2 - 32);
 
                     if (ghostCellCol !== -1 && ghostCellCol === route.sTo.col) {
-                        const y_pasillo1 = getHTrack(route.sFrom.level, x1, toPos.x + 100, route.from, baseYOut, false);
-                        const portXIn = getIncomingPort(route, toPos.x + 100);
-                        const x2 = toPos.x + portXIn;
+                        const y_pasillo1 = getHTrack(route.sFrom.level, x1, getCardX(route.sTo.col) + 100, route.from, baseYOut, false);
+                        const portXIn = getIncomingPort(route, x1);
+                        const x2 = getCardX(route.sTo.col) + portXIn;
                         
                         routeInfo.type = 'req-ghost';
                         routeInfo.x1 = x1; routeInfo.y1 = y1; routeInfo.x2 = x2; routeInfo.y2 = y2;
@@ -3012,15 +3032,13 @@
                         addVLine(x1, y1, y_pasillo1, route.from);
                         addVLine(x2, y_pasillo1, y2, route.from);
                     } else {
-                        const xRef = getDynamicGapX(route.vColRoute); 
+                        const xRef = getGapX(route.vColRoute); 
                         const travelDir = (route.sFrom.col <= route.vColRoute) ? 'right' : 'left';
                         const trackOffset = getVTrack(route.vColRoute, baseYOut, baseYIn, travelDir, route.from, xRef);
                         const laneX = xRef + trackOffset; 
-                        const portXIn = getIncomingPort(route, laneX);
                         
-                        // NOTA: Se mantiene la estructura previa solicitada para la obtención del destino X
-                        let finalDestCard = document.getElementById(`card-${route.to}`);
-                        const x2 = finalDestCard ? (getZoomedPos(finalDestCard).x + portXIn) : (toPos.x + portXIn);
+                        const portXIn = getIncomingPort(route, laneX);
+                        const x2 = getCardX(route.sTo.col) + portXIn;
 
                         if (route.lvlDistance === 1) {
                             const midY = getHTrack(route.sFrom.level, x1, x2, route.from, baseYOut, false); 
