@@ -2755,7 +2755,6 @@
             }
         });
 
-        // Asegurar que levelBoundsY tenga valor incluso si la fila está vacía
         visibleLevels.forEach((l, i) => {
             if (!levelBoundsY[l.id]) {
                 const prevLvl = i > 0 ? visibleLevels[i-1].id : null;
@@ -2806,10 +2805,9 @@
         function getCardX(colIdx) { return 236 + (colIdx * 250); }
         function getGapX(colIdx) { return 236 + (colIdx * 250) + 200; }
 
-        // --- 3. GESTOR DINÁMICO DE PUERTOS (EVITA SOBREPOSICIONES) ---
+        // --- 3. GESTOR DINÁMICO DE PUERTOS ---
         const incomingPortsUsed = {};
         
-        // Pre-registro: Las líneas rectas reclaman el centro (100) por derecho
         connRoutes.forEach(r => {
             if (r.isStraight) {
                 if (!incomingPortsUsed[r.to]) incomingPortsUsed[r.to] = [];
@@ -2858,7 +2856,7 @@
             return preferredPorts[0]; 
         }
 
-        // --- 4. LA MATRIZ DE CARRILES ESTRICTA (0, 8, 16, 24, 32) ---
+        // --- 4. LA MATRIZ DE CARRILES ESTRICTA ---
         const hSegments = []; 
         const vSegments = []; 
         const ghostCentersOccupied = {}; 
@@ -2873,21 +2871,24 @@
 
             let familySpanMinX = minX;
             let familySpanMaxX = maxX;
-            const familyRoutes = connRoutes.filter(r => r.from === sourceId && (r.lvlDistance === 0) === isCoreq && !r.isStraight);
             
-            familyRoutes.forEach(fr => {
-                const startPortX = getCardX(fr.sFrom.col) + 100;
-                let endPortX = (fr.lvlDistance === 1 || fr.lvlDistance === 0) ? getCardX(fr.sTo.col) + 100 : getGapX(fr.vColRoute);
-                familySpanMinX = Math.min(familySpanMinX, startPortX, endPortX);
-                familySpanMaxX = Math.max(familySpanMaxX, startPortX, endPortX);
-            });
+            // TU REGLA APLICADA: Solo calculamos expansión y márgenes de 5px si NO es un correquisito
+            if (!isCoreq) {
+                const familyRoutes = connRoutes.filter(r => r.from === sourceId && r.lvlDistance > 0 && !r.isStraight);
+                familyRoutes.forEach(fr => {
+                    const startPortX = getCardX(fr.sFrom.col) + 100;
+                    let endPortX = (fr.lvlDistance === 1) ? getCardX(fr.sTo.col) + 100 : getGapX(fr.vColRoute);
+                    familySpanMinX = Math.min(familySpanMinX, startPortX, endPortX);
+                    familySpanMaxX = Math.max(familySpanMaxX, startPortX, endPortX);
+                });
+                familySpanMinX -= 5;
+                familySpanMaxX += 5;
+            }
 
-            familySpanMinX -= 5;
-            familySpanMaxX += 5;
-
+            // Uso de <= y >= para permitir que las rutas de relevo se toquen exactamente en los bordes
             for (let p of priorities) {
                 const testY = exactYBase + p;
-                const collision = hSegments.find(seg => seg.level === levelId && seg.y === testY && !(familySpanMaxX < seg.minX || familySpanMinX > seg.maxX));
+                const collision = hSegments.find(seg => seg.level === levelId && seg.y === testY && !(familySpanMaxX <= seg.minX || familySpanMinX >= seg.maxX));
                 if (!collision) {
                     hSegments.push({ level: levelId, track: p, minX: familySpanMinX, maxX: familySpanMaxX, sourceId, y: testY, isCoreq });
                     return testY;
@@ -2896,7 +2897,7 @@
 
             for (let p of priorities) {
                 const testY = exactYBase + p;
-                const collision = hSegments.find(seg => seg.level === levelId && seg.y === testY && !(maxX < seg.minX || minX > seg.maxX));
+                const collision = hSegments.find(seg => seg.level === levelId && seg.y === testY && !(maxX <= seg.minX || minX >= seg.maxX));
                 if (!collision) {
                     hSegments.push({ level: levelId, track: p, minX: minX, maxX: maxX, sourceId, y: testY, isCoreq });
                     return testY;
@@ -2913,7 +2914,7 @@
             const familySegs = vSegments.filter(seg => seg.colIdx === colIdx && seg.sourceId === sourceId);
             if (familySegs.length > 0) {
                 const prefTrack = familySegs[0].track;
-                const coll = vSegments.find(seg => seg.colIdx === colIdx && seg.track === prefTrack && seg.sourceId !== sourceId && !(maxY < seg.minY || minY > seg.maxY));
+                const coll = vSegments.find(seg => seg.colIdx === colIdx && seg.track === prefTrack && seg.sourceId !== sourceId && !(maxY <= seg.minY || minY >= seg.maxY));
                 if (!coll) {
                     vSegments.push({ colIdx, track: prefTrack, minY, maxY, sourceId, x: exactXBase + prefTrack });
                     return prefTrack;
@@ -2921,7 +2922,7 @@
             }
 
             for (let p of priorities) {
-                const collision = vSegments.find(seg => seg.colIdx === colIdx && seg.track === p && seg.sourceId !== sourceId && !(maxY < seg.minY || minY > seg.maxY));
+                const collision = vSegments.find(seg => seg.colIdx === colIdx && seg.track === p && seg.sourceId !== sourceId && !(maxY <= seg.minY || minY >= seg.maxY));
                 if (!collision) {
                     vSegments.push({ colIdx, track: p, minY, maxY, sourceId, x: exactXBase + p });
                     return p;
