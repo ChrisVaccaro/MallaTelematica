@@ -1698,15 +1698,15 @@
             });
         }
 
-        // Pausa optimizada al límite seguro de 150ms
-        await new Promise(r => setTimeout(r, 150));
+        // Pausa optimizada al límite seguro de 350ms
+        await new Promise(r => setTimeout(r, 350));
 
         try {
             const canvas = await html2canvas(wrapper, {
                 scale: 2, // Escala doble para mayor nitidez
                 useCORS: true,
                 backgroundColor: '#ffffff',
-                logging: false // Apaga el motor de registro para ganar velocidad de procesamiento
+                logging: false
             });
 
             const imgData = canvas.toDataURL('image/png');
