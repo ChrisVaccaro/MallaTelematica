@@ -2802,14 +2802,13 @@
 
         connRoutes.sort((a, b) => b.lvlFromIdx - a.lvlFromIdx);
 
-        // RESTAURACIÓN DEL ESCÁNER VISUAL (Ojos en lugar de matemáticas a ciegas)
         function getDynamicCardX(colIdx) {
             const refSubj = state.subjects.find(s => s.col === colIdx);
             if (refSubj) {
                 const refCard = document.getElementById(`card-${refSubj.id}`);
                 if (refCard) return getZoomedPos(refCard).x;
             }
-            return 236 + (colIdx * 250); // Fallback
+            return 236 + (colIdx * 250);
         }
 
         function getDynamicGapX(colIdx) {
@@ -2818,7 +2817,7 @@
                 const refCard = document.getElementById(`card-${refSubj.id}`);
                 if (refCard) return getZoomedPos(refCard).right;
             }
-            return 236 + (colIdx * 250) + 200; // Fallback
+            return 236 + (colIdx * 250) + 200;
         }
 
         // --- 3. GESTOR DINÁMICO DE PUERTOS ---
@@ -2973,15 +2972,32 @@
                 canCrossHorizontal = empty;
             }
 
+            // NUEVO ESCÁNER VISUAL PARA ATAJOS FANTASMAS
             let ghostCellCol = -1;
             if (!isSameLevel && route.sFrom.col !== route.sTo.col && route.lvlDistance > 1) {
                 const checkCol = route.sTo.col; 
                 let empty = true;
                 const minLvl = Math.min(route.lvlFromIdx, route.lvlToIdx);
                 const maxLvl = Math.max(route.lvlFromIdx, route.lvlToIdx);
+                
                 for (let l = minLvl + 1; l < maxLvl; l++) {
-                    if (occupied[state.levels[l].id] && occupied[state.levels[l].id][checkCol]) { empty = false; break; }
+                    const levelId = state.levels[l].id;
+                    const subjectsInLvl = state.subjects.filter(s => s.level === levelId);
+                    
+                    for (let sub of subjectsInLvl) {
+                        const midCard = document.getElementById(`card-${sub.id}`);
+                        if (midCard) {
+                            const midPos = getZoomedPos(midCard);
+                            // Verificamos si alguna tarjeta intermedia invade el ancho visual del destino
+                            if (midPos.x < toPos.right && midPos.right > toPos.x) {
+                                empty = false;
+                                break;
+                            }
+                        }
+                    }
+                    if (!empty) break;
                 }
+
                 if (empty && !ghostCentersOccupied[`${checkCol}-${route.lvlFromIdx}-${route.lvlToIdx}`]) {
                     ghostCellCol = checkCol;
                     ghostCentersOccupied[`${checkCol}-${route.lvlFromIdx}-${route.lvlToIdx}`] = true;
