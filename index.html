@@ -2873,18 +2873,18 @@
             return preferredPorts[0]; 
         }
 
-        // --- 4. LA MATRIZ DE CARRILES ESTRICTA ---
+        // --- 4. LA MATRIZ DE CARRILES ESTRICTA CON SEPARACIÓN DE PISOS ---
         const hSegments = []; 
         const vSegments = []; 
         const ghostCentersOccupied = {}; 
         
-        function getHTrack(levelId, startX, endX, sourceId, exactYBase, isCoreq) {
-            // Ampliamos la capacidad a 6 carriles normales para evitar solapamientos
+        function getHTrack(levelId, startX, endX, sourceId, exactYBase, isCoreq, floorType = 'top') {
             const priorities = isCoreq ? [32, 24] : [8, 16, 0, 12, 4, 20];
             const minX = Math.min(startX, endX);
             const maxX = Math.max(startX, endX);
 
-            const familySegs = hSegments.filter(seg => seg.level === levelId && seg.sourceId === sourceId && seg.isCoreq === isCoreq);
+            // Reutiliza carril si es de la misma familia y del MISMO PISO (top vs bottom)
+            const familySegs = hSegments.filter(seg => seg.level === levelId && seg.sourceId === sourceId && seg.isCoreq === isCoreq && seg.floorType === floorType);
             if (familySegs.length > 0) return familySegs[0].y;
 
             let familySpanMinX = minX;
@@ -2892,22 +2892,37 @@
             
             if (!isCoreq) {
                 const familyRoutes = connRoutes.filter(r => r.from === sourceId && r.lvlDistance > 0 && !r.isStraight);
-                familyRoutes.forEach(fr => {
-                    const startPortX = getDynamicCardX(fr.sFrom.col) + 100;
-                    let endPortX = (fr.lvlDistance === 1) ? getDynamicCardX(fr.sTo.col) + 100 : getDynamicGapX(fr.vColRoute);
-                    familySpanMinX = Math.min(familySpanMinX, startPortX, endPortX);
-                    familySpanMaxX = Math.max(familySpanMaxX, startPortX, endPortX);
-                });
+                
+                if (floorType === 'top') {
+                    // Si es el piso de arriba, agrupamos desde la salida hasta los pasillos verticales
+                    familyRoutes.forEach(fr => {
+                        const startPortX = getDynamicCardX(fr.sFrom.col) + 100;
+                        let endPortX = (fr.lvlDistance === 1) ? getDynamicCardX(fr.sTo.col) + 100 : getDynamicGapX(fr.vColRoute);
+                        familySpanMinX = Math.min(familySpanMinX, startPortX, endPortX);
+                        familySpanMaxX = Math.max(familySpanMaxX, startPortX, endPortX);
+                    });
+                } else if (floorType === 'bottom') {
+                    // Si es el piso de abajo, agrupamos desde los pasillos verticales hacia el destino, SÓLO si terminan en este nivel
+                    familyRoutes.forEach(fr => {
+                        const frTargetLvlIdIn = fr.lvlToIdx > 0 ? state.levels[fr.lvlToIdx - 1].id : fr.sTo.level;
+                        if (fr.lvlDistance > 1 && frTargetLvlIdIn === levelId) {
+                            const gapX = getDynamicGapX(fr.vColRoute);
+                            const destX = getDynamicCardX(fr.sTo.col) + 100;
+                            familySpanMinX = Math.min(familySpanMinX, gapX, destX);
+                            familySpanMaxX = Math.max(familySpanMaxX, gapX, destX);
+                        }
+                    });
+                }
+                
                 familySpanMinX -= 5;
                 familySpanMaxX += 5;
             }
 
-            // Operadores cambiados a < y > para sensibilidad milimétrica al toque
             for (let p of priorities) {
                 const testY = exactYBase + p;
                 const collision = hSegments.find(seg => seg.level === levelId && seg.y === testY && !(familySpanMaxX < seg.minX || familySpanMinX > seg.maxX));
                 if (!collision) {
-                    hSegments.push({ level: levelId, track: p, minX: familySpanMinX, maxX: familySpanMaxX, sourceId, y: testY, isCoreq });
+                    hSegments.push({ level: levelId, track: p, minX: familySpanMinX, maxX: familySpanMaxX, sourceId, y: testY, isCoreq, floorType });
                     return testY;
                 }
             }
@@ -2916,7 +2931,7 @@
                 const testY = exactYBase + p;
                 const collision = hSegments.find(seg => seg.level === levelId && seg.y === testY && !(maxX < seg.minX || minX > seg.maxX));
                 if (!collision) {
-                    hSegments.push({ level: levelId, track: p, minX: minX, maxX: maxX, sourceId, y: testY, isCoreq });
+                    hSegments.push({ level: levelId, track: p, minX: minX, maxX: maxX, sourceId, y: testY, isCoreq, floorType });
                     return testY;
                 }
             }
@@ -2924,7 +2939,6 @@
         }
 
         function getVTrack(colIdx, startY, endY, travelDirection, sourceId, exactXBase) {
-            // Ampliamos la capacidad a 5 carriles verticales
             let priorities = (travelDirection === 'right') ? [17, 25, 33, 9, 41] : [33, 25, 17, 41, 9];
             const minY = Math.min(startY, endY);
             const maxY = Math.max(startY, endY);
@@ -2939,7 +2953,6 @@
                 }
             }
 
-            // Operadores cambiados a < y > 
             for (let p of priorities) {
                 const collision = vSegments.find(seg => seg.colIdx === colIdx && seg.track === p && seg.sourceId !== sourceId && seg.isGap && !(maxY < seg.minY || minY > seg.maxY));
                 if (!collision) {
@@ -3024,7 +3037,8 @@
                     const levelAboveId = route.lvlFromIdx > 0 ? state.levels[route.lvlFromIdx - 1].id : null;
                     const gapBaseY = levelAboveId ? levelBoundsY[levelAboveId] : (levelTopY[route.sFrom.level] - 32);
                     
-                    const routeY = getHTrack((levelAboveId || 'top'), startX + dirOffset, endX - dirOffset, route.from, gapBaseY, true);
+                    // Corequisitos siempre cuentan como top
+                    const routeY = getHTrack((levelAboveId || 'top'), startX + dirOffset, endX - dirOffset, route.from, gapBaseY, true, 'top');
                     
                     routeInfo.type = 'coreq-roof';
                     routeInfo.startX = startX; routeInfo.endX = endX; routeInfo.yCenter = yCenter;
@@ -3051,7 +3065,7 @@
                     const baseYIn = levelBoundsY[targetLvlIdIn] || (y2 - 32);
 
                     if (ghostCellCol !== -1 && ghostCellCol === route.sTo.col) {
-                        const y_pasillo1 = getHTrack(route.sFrom.level, x1, getDynamicCardX(route.sTo.col) + 100, route.from, baseYOut, false);
+                        const y_pasillo1 = getHTrack(route.sFrom.level, x1, getDynamicCardX(route.sTo.col) + 100, route.from, baseYOut, false, 'top');
                         const portXIn = getIncomingPort(route, x1);
                         const x2 = getDynamicCardX(route.sTo.col) + portXIn;
                         
@@ -3071,7 +3085,7 @@
                         const x2 = getDynamicCardX(route.sTo.col) + portXIn;
 
                         if (route.lvlDistance === 1) {
-                            const midY = getHTrack(route.sFrom.level, x1, x2, route.from, baseYOut, false); 
+                            const midY = getHTrack(route.sFrom.level, x1, x2, route.from, baseYOut, false, 'top'); 
                             
                             routeInfo.type = 'req-d1';
                             routeInfo.x1 = x1; routeInfo.y1 = y1; routeInfo.x2 = x2; routeInfo.y2 = y2;
@@ -3080,8 +3094,9 @@
                             addVLine(x1, y1, midY, route.from);
                             addVLine(x2, midY, y2, route.from);
                         } else {
-                            const y_pasillo1 = getHTrack(route.sFrom.level, x1, laneX, route.from, baseYOut, false);
-                            const y_pasillo2 = getHTrack(targetLvlIdIn, laneX, x2, route.from, baseYIn, false);
+                            // AQUÍ ESTÁ LA MAGIA DE LA INDEPENDENCIA DE PISOS: 'top' arriba, 'bottom' abajo
+                            const y_pasillo1 = getHTrack(route.sFrom.level, x1, laneX, route.from, baseYOut, false, 'top');
+                            const y_pasillo2 = getHTrack(targetLvlIdIn, laneX, x2, route.from, baseYIn, false, 'bottom');
                             
                             routeInfo.type = 'req-long';
                             routeInfo.x1 = x1; routeInfo.y1 = y1; routeInfo.x2 = x2; routeInfo.y2 = y2;
