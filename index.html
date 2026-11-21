@@ -253,7 +253,7 @@
       z-index: 30;
     }
 
-    .level-title { font-weight: 800; color: var(--primary-color); font-size: 1.05em; text-transform: uppercase; margin-bottom: 8px; }
+    .level-title { font-weight: 800; color: var(--primary-color); font-size: 0.95em; line-height: 1.2; text-transform: uppercase; margin-bottom: 8px; }
     .level-badge { background-color: #e0f2fe; color: #0369a1; padding: 4px 10px; border-radius: 12px; font-weight: 700; font-size: 0.85em; margin-bottom: 8px; }
     .level-hours-week { font-weight: 700; font-size: 0.8em; color: #334155; margin-bottom: 4px; }
     .level-hours-breakdown { font-size: 0.7em; color: #64748b; margin-bottom: 8px; font-weight: 600;}
@@ -737,6 +737,7 @@
           <option value="2/0/4">2 Créditos - (2 ACD / 0 APE / 4 AA)</option>
           <option value="2/1/3">2 Créditos - (2 ACD / 1 APE / 3 AA)</option>
           <option value="2/2/2">2 Créditos - (2 ACD / 2 APE / 2 AA)</option>
+          <option value="3/1/2">2 Créditos - (3 ACD / 1 APE / 2 AA)</option>
           <option value="3/0/3">2 Créditos - (3 ACD / 0 APE / 3 AA)</option>
           <option value="3/0/6">3 Créditos - (3 ACD / 0 APE / 6 AA)</option>
           <option value="0/0/3">1 Crédito - (0 ACD / 0 APE / 3 AA)</option>
@@ -866,7 +867,18 @@
     };
 
     const niceSemesterNames = ['SEMESTRE I', 'SEMESTRE II', 'SEMESTRE III', 'SEMESTRE IV', 'SEMESTRE V', 'SEMESTRE VI', 'SEMESTRE VII', 'SEMESTRE VIII', 'SEMESTRE IX'];
-    const allowedCombinations = ["1/1/1", "2/0/1", "4/0/2", "2/0/4", "2/1/3", "2/2/2", "3/0/3", "3/0/6", "0/0/6", "3/1/5", "3/2/4", "4/0/5", "4/1/4", "0/0/9", "4/0/8", "4/1/7", "5/0/7", "0/0/15", "0/0/3", "0/0/12"];
+    const allowedCombinations = ["1/1/1", "2/0/1", "4/0/2", "2/0/4", "2/1/3", "2/2/2", "3/1/2", "3/0/3", "3/0/6", "0/0/6", "3/1/5", "3/2/4", "4/0/5", "4/1/4", "0/0/9", "4/0/8", "4/1/7", "5/0/7", "0/0/15", "0/0/3", "0/0/12"];
+    const periodDisplayNames = {
+      "L100-1": "Periodo Académico 1",
+      "L100-2": "Periodo Académico 2",
+      "L200-1": "Periodo Académico 3",
+      "L200-2": "Periodo Académico 4",
+      "L300-1": "Periodo Académico 5",
+      "L300-2": "Periodo Académico 6",
+      "L400-1": "Periodo Académico 7",
+      "L400-2": "Periodo Académico 8",
+      "L500-1": "Periodo Académico 9"
+    };
 
     function isValidCombination(compStr) {
       if (!compStr) return false;
@@ -1384,7 +1396,12 @@
         if (edgeScrollInterval) { clearInterval(edgeScrollInterval); edgeScrollInterval = null; }
     }
 
-    function formatLevel(lvl) { return lvl ? String(lvl).replace('L', '') : ''; }
+    function formatLevel(lvl) {
+      if (!lvl) return '';
+      return periodDisplayNames[lvl] || String(lvl).replace('L', '');
+    }
+
+    function formatLevelDAR(lvl) { return lvl ? String(lvl).replace('L', '') : ''; }
 
     function parseNameReq(name) {
       if (!name) return { cleanName: '', reqNum: null };
@@ -2332,7 +2349,7 @@
 
         row.innerHTML = `
           <div class="level-header">
-            <div class="level-title">${level.name}</div>
+            <div class="level-title">${(periodDisplayNames[level.id] || level.name).replace(' ', '<br>')}</div>
             <div class="level-badge">${totalCredits.toFixed(1).replace('.0','')} Créditos</div>
             <div class="level-hours-breakdown">ACD: ${totalACDSem}h | APE: ${totalAPESem}h | AA: ${totalAASem}h</div>
             <div class="level-divider"></div>
@@ -3863,7 +3880,7 @@
                 // MALLA ACTUAL (E - I) y CACHÉ SEMESTRAL (R - V)
                 if (base) {
                     let hBase = parseHoursComponents(base.components);
-                    row.getCell(5).value = formatLevel(base.level);
+                    row.getCell(5).value = formatLevelDAR(base.level);
                     row.getCell(6).value = hBase.acd;
                     row.getCell(7).value = hBase.ape;
                     row.getCell(8).value = hBase.aa;
@@ -3889,7 +3906,7 @@
                 // MALLA PROPUESTA (J - N) y CACHÉ SEMESTRAL (W - AA)
                 if (web) {
                     let hWeb = parseHoursComponents(web.components);
-                    row.getCell(10).value = formatLevel(web.level);
+                    row.getCell(10).value = formatLevelDAR(web.level);
                     row.getCell(11).value = hWeb.acd;
                     row.getCell(12).value = hWeb.ape;
                     row.getCell(13).value = hWeb.aa;
